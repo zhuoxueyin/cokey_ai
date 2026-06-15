@@ -164,8 +164,13 @@ export default function DynamicForm() {
 
   const hasRequired = fields.some((f) => f.required)
   const requiredEmpty = fields.some((f) => f.required && (params[f.name] === undefined || params[f.name] === '' || params[f.name] === null))
+  const promptEmptyForText = activeCategory === 'text' && !params.prompt
 
   const handleSubmit = async () => {
+    if (promptEmptyForText) {
+      message.warning('请先在"输入内容"中填写内容描述')
+      return
+    }
     if (requiredEmpty) {
       const requiredFields = fields.filter((f) => f.required).map((f) => f.label).join('、')
       message.warning(`请先填写必填项: ${requiredFields}`)
@@ -282,7 +287,7 @@ export default function DynamicForm() {
               icon={<ThunderboltOutlined />}
               onClick={handleSubmit}
               loading={submitting}
-              disabled={requiredEmpty}
+              disabled={promptEmptyForText || requiredEmpty}
             >
               立即生成
             </Button>

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Dict
 import time
+import json
 
 from openai import AsyncOpenAI
 from app.adapters.base import BaseChannelAdapter
@@ -13,31 +14,42 @@ logger = get_logger()
 class WeelinkingAdapter(BaseChannelAdapter):
     def __init__(self, channel_config: Dict[str, Any], trace_id: str):
         super().__init__(channel_config, trace_id)
-        self.client = AsyncOpenAI(
-            base_url=self.base_url,
-            api_key="",
-            timeout=self.retry_config.get("timeout", 30),
-        )
+        self.client = None
 
     async def convert_params(self, model_config: Dict[str, Any], params: Dict[str, Any]) -> Dict[str, Any]:
         return params
 
     async def call_api(self, category: str, channel_params: Dict[str, Any], channel_model_id: str, api_key: str) -> Dict[str, Any]:
+        logger.info(f"[{self.trace_id}] call_api - category={category}, base_url={self.base_url}, model={channel_model_id}, api_key_len={len(api_key) if api_key else 0}")
+        
+        if not api_key:
+            raise Exception(f"渠道 API Key 未配置: category={category}, channel={self.channel_code}")
+        
         self_client = AsyncOpenAI(
             base_url=self.base_url,
             api_key=api_key,
-            timeout=self.retry_config.get("timeout", 30),
+            timeout=self.retry_config.get("timeout", 60),
         )
 
         if category == "text":
             prompt = channel_params.get("prompt", "")
-            messages = channel_params.get("messages", [{"role": "user", "content": prompt}])
-            if not messages or not messages[-1].get("content"):
-                messages = [{"role": "user", "content": prompt}]
+            messages = channel_params.get("messages")
 
-            kwargs = {
+            if not messages:
+                messages = [
+                    {"role": "system", "content": "你是一个有帮助的助手"},
+                    {"role": "user", "content": prompt if prompt else "你好"},
+                ]
+            elif messages and not messages[-1].get("content"):
+                messages = [
+                    {"role": "system", "content": "你是一个有帮助的助手"},
+                    {"role": "user", "content": prompt if prompt else "你好"},
+                ]
+
+            kwargs: Dict[str, Any] = {
                 "model": channel_model_id,
                 "messages": messages,
+                "stream": True,
             }
             if "temperature" in channel_params:
                 kwargs["temperature"] = float(channel_params["temperature"])
@@ -46,9 +58,49 @@ class WeelinkingAdapter(BaseChannelAdapter):
             if "seed" in channel_params:
                 kwargs["seed"] = int(channel_params["seed"])
 
-            logger.info(f"[{self.trace_id}] Weelinking文本调用, model={channel_model_id}, prompt_len={len(prompt)}")
-            response = await self_client.chat.completions.create(**kwargs)
-            return {"type": "text", "response": response.model_dump()}
+            _body_for_log = {k: v for k, v in kwargs.items() if k != "stream"}
+            _body_for_log["stream"] = True
+            logger.info(f"[{self.trace_id}] ═══════ API 完整请求体 ═══════")
+            logger.info(f"[{self.trace_id}] POST {self.base_url}/chat/completions (stream)")
+            logger.info(f"[{self.trace_id}] Authorization: Bearer ...{api_key[-8:] if api_key else 'NULL'}")
+            try:
+                logger.info(f"[{self.trace_id}] body=\n{json.dumps({k: v for k, v in kwargs.items() if k != 'stream'}, ensure_ascii=False, indent=2)}")
+            except Exception as _e:
+                logger.info(f"[{self.trace_id}] body_raw={_body_for_log}")
+            logger.info(f"[{self.trace_id}] ════════════════════════════════")
+
+            collected_chunks = []
+            full_text = ""
+            async for chunk in await self_client.chat.completions.create(**kwargs):
+                chunk_dict = chunk.model_dump() if hasattr(chunk, "model_dump") else {}
+                collected_chunks.append(chunk_dict)
+                choices = chunk_dict.get("choices", [])
+                if choices:
+                    delta = choices[0].get("delta", {})
+                    content = delta.get("content")
+                    if content:
+                        full_text += content
+            
+            logger.info(f"[{self.trace_id}] 流式调用完成, 共 {len(collected_chunks)} 个 chunk, 文本长度={len(full_text)}")
+
+            return {
+                "type": "text",
+                "response": {
+                    "id": collected_chunks[0].get("id", "") if collected_chunks else "",
+                    "object": "chat.completion",
+                    "model": channel_model_id,
+                    "choices": [{
+                        "index": 0,
+                        "message": {
+                            "role": "assistant",
+                            "content": full_text,
+                        },
+                        "finish_reason": "stop",
+                    }],
+                    "usage": {},
+                },
+                "stream_chunks": collected_chunks,
+            }
 
         elif category == "image":
             prompt = channel_params.get("prompt", "")

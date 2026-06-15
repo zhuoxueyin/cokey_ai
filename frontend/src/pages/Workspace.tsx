@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Layout, Tabs, ConfigProvider } from 'antd'
+import { Layout, Tabs } from 'antd'
 import type { TabsProps } from 'antd'
 import {
   FileTextOutlined,
@@ -10,7 +10,7 @@ import { useGenerationStore } from '@/store/generation'
 import ParamPanel from '../components/ParamPanel'
 import ChatArea from '../components/ChatArea'
 
-const { Header, Sider, Content } = Layout
+const { Sider, Content } = Layout
 
 const tabItems: TabsProps['items'] = [
   { key: 'text', label: <span><FileTextOutlined /> 文本创作</span> },
@@ -27,30 +27,22 @@ export default function Workspace() {
   }
 
   return (
-    <Layout style={{ minHeight: '100vh' }}>
-      <Header
+    <div style={{ background: '#fff', borderRadius: 8, minHeight: 'calc(100vh - 112px)' }}>
+      <div
         style={{
-          background: '#fff',
-          padding: '0 24px',
+          padding: '16px 24px',
           borderBottom: '1px solid #f0f0f0',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 20 }}>
-          <h2 style={{ margin: 0, fontSize: 18, fontWeight: 600 }}>AIGC 创作平台</h2>
-          <Tabs
-            activeKey={activeCategory}
-            onChange={handleTabChange}
-            items={tabItems}
-            size="large"
-          />
-        </div>
-        <div style={{ color: '#888', fontSize: 13 }}>v1.0.0</div>
-      </Header>
+        <Tabs
+          activeKey={activeCategory}
+          onChange={handleTabChange}
+          items={tabItems}
+          size="large"
+        />
+      </div>
 
-      <Layout>
+      <Layout style={{ background: 'transparent', minHeight: 'calc(100vh - 190px)' }}>
         <Sider
           width={400}
           collapsible
@@ -65,7 +57,7 @@ export default function Workspace() {
           }}
         >
           {!collapsed && (
-            <div style={{ padding: 20, height: 'calc(100vh - 64px)', overflowY: 'auto' }}>
+            <div style={{ padding: 20, height: 'calc(100vh - 190px)', overflowY: 'auto' }}>
               <ParamPanel />
             </div>
           )}
@@ -78,11 +70,11 @@ export default function Workspace() {
             overflow: 'hidden',
           }}
         >
-          <div style={{ height: 'calc(100vh - 64px)', overflowY: 'auto' }}>
+          <div style={{ height: 'calc(100vh - 190px)', overflowY: 'auto' }}>
             <ChatArea />
           </div>
         </Content>
       </Layout>
-    </Layout>
+    </div>
   )
 }

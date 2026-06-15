@@ -11,16 +11,36 @@
 - **MongoDB**: 本地部署（默认 `mongodb://localhost:27017`）
 - **Redis**: 本地部署（可选，用于限流/缓存）
 
+### 系统启动规则（重要）
+
+- **后端服务**: 固定端口 `8000`，端口被占用时直接报错终止，不自动切换端口
+- **前端服务**: 固定端口 `3001`，端口被占用时直接报错终止，不自动切换端口
+- **禁止重启时占用新端口**：如端口冲突请先停止之前的进程，再重新启动
+- **默认访问地址**:
+  - 后端 API: http://localhost:8000
+  - 前端界面: http://localhost:3001
+  - API 文档: http://localhost:8000/docs
+
 ### 一键启动（Windows）
 
+双击以下 `.bat` 脚本即可，或在命令行执行：
+
 ```bash
-# 方式一：一键启动前后端
+# 一键启动前后端
 start-all.bat
 
-# 方式二：分别启动
+# 分别启动（调试时用）
 start-backend.bat      # 后端服务 (http://localhost:8000)
-start-frontend.bat     # 前端界面 (http://localhost:3000)
+start-frontend.bat     # 前端界面 (http://localhost:3001)
+
+# 停止所有服务
+stop-all.bat
+
+# 重启所有服务（先停后启）
+restart-all.bat
 ```
+
+> 首次运行会自动创建虚拟环境 / 安装依赖，约 1-3 分钟，后续启动仅需几秒。
 
 ### 手动启动（跨平台）
 
@@ -42,7 +62,7 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 ```bash
 cd frontend
 npm install
-npm run dev   # http://localhost:3000
+npm run dev   # http://localhost:3001
 ```
 
 ## 📁 项目结构

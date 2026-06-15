@@ -47,15 +47,23 @@ class ModelGateway:
 
         return True, ""
 
-    def _select_channel(self, model_config: Dict[str, Any]) -> Tuple[Optional[Dict[str, Any]], Optional[Dict[str, Any]]]:
+    async def _select_channel(self, model_config: Dict[str, Any]) -> Tuple[Optional[Dict[str, Any]], Optional[Dict[str, Any]]]:
         bindings = model_config.get("channel_bindings", [])
+        logger.info(f"[_select_channel] 模型有 {len(bindings)} 个渠道绑定")
         active_bindings = [b for b in bindings if b.get("status", "active") == "active"]
         active_bindings.sort(key=lambda b: b.get("priority", 1), reverse=True)
 
-        for binding in active_bindings:
-            channel = self.channel_service.get_by_code(binding["channel_code"])
+        for idx, binding in enumerate(active_bindings):
+            channel_code = binding.get("channel_code")
+            logger.info(f"[_select_channel] 检查绑定 [{idx}]: channel_code={channel_code}")
+            channel = await self.channel_service.get_by_code(channel_code)
+            logger.info(f"[_select_channel] channel_service.get_by_code({channel_code}) 返回: type={type(channel)}, is_dict={isinstance(channel, dict)}")
             if channel and channel.get("status") == "active":
+                logger.info(f"[_select_channel] 选中渠道: {channel_code}")
                 return channel, binding
+            else:
+                logger.warning(f"[_select_channel] 渠道 {channel_code} 不可用: status={channel.get('status') if channel else 'None'}")
+        logger.warning(f"[_select_channel] 未找到任何可用渠道")
         return None, None
 
     async def execute(self, model_code: str, category: str, params: Dict[str, Any],
@@ -65,30 +73,57 @@ class ModelGateway:
         logger.info(f"[{trace_id}] 开始执行: model_code={model_code}, category={category}")
 
         model_config = await self.model_service.get_by_code(model_code)
+        logger.info(f"[{trace_id}] 获取模型配置: type={type(model_config)}, is_dict={isinstance(model_config, dict)}")
         if not model_config:
             return {"success": False, "error_code": "model_not_found", "error_message": f"模型不存在: {model_code}"}
 
-        if model_config.get("status") != "online":
+        model_status = model_config.get("status") if isinstance(model_config, dict) else "INVALID"
+        logger.info(f"[{trace_id}] 模型状态: {model_status}")
+        if model_status != "online":
             return {"success": False, "error_code": "model_offline", "error_message": f"模型已下架: {model_code}"}
 
         is_valid, error_msg = self._validate_params(params, model_config.get("param_schema", {}))
         if not is_valid:
             return {"success": False, "error_code": "validation_error", "error_message": error_msg}
 
-        channel, binding = self._select_channel(model_config)
+        logger.info(f"[{trace_id}] 调用 _select_channel...")
+        channel, binding = await self._select_channel(model_config)
+        logger.info(f"[{trace_id}] _select_channel 返回: channel_type={type(channel)}, binding_type={type(binding)}")
         if not channel:
             return {"success": False, "error_code": "channel_error", "error_message": "没有可用的渠道绑定"}
 
-        channel_model_id = binding.get("channel_model_id", model_code)
+        try:
+            channel_model_id = binding.get("channel_model_id", model_code)
+        except AttributeError as e:
+            logger.error(f"[{trace_id}] binding 不是字典: {type(binding)}, value={binding}")
+            return {"success": False, "error_code": "channel_error", "error_message": "渠道绑定数据格式错误"}
+
         adapter = create_adapter(channel, trace_id)
         if not adapter:
             return {"success": False, "error_code": "channel_error", "error_message": "渠道适配器初始化失败"}
 
-        api_key = adapter.get_api_key_for_category(category)
+        try:
+            api_key = adapter.get_api_key_for_category(category)
+            logger.info(f"[{trace_id}] 获取 API Key: has_key={bool(api_key)}, key_length={len(api_key) if api_key else 0}")
+        except Exception as e:
+            logger.error(f"[{trace_id}] 获取 API Key 失败: {e}, channel_type={type(channel)}, channel_data={channel}")
+            return {"success": False, "error_code": "channel_error", "error_message": f"渠道配置错误: {e}"}
+
         if not api_key:
             return {"success": False, "error_code": "channel_error", "error_message": "渠道API密钥未配置"}
 
+        import json
         logger.info(f"[{trace_id}] 选中渠道: {channel['channel_code']}, 模型ID: {channel_model_id}")
+        logger.info(f"[{trace_id}] ═══════ 网关调用完整入参 ═══════")
+        logger.info(f"[{trace_id}] category={category}")
+        logger.info(f"[{trace_id}] channel_model_id={channel_model_id}")
+        logger.info(f"[{trace_id}] base_url={channel.get('base_url')}")
+        logger.info(f"[{trace_id}] api_key_last_8=...{api_key[-8:] if api_key else 'NULL'}")
+        try:
+            logger.info(f"[{trace_id}] params={json.dumps(params, ensure_ascii=False, indent=2)}")
+        except Exception as _e:
+            logger.info(f"[{trace_id}] params_raw={params}")
+        logger.info(f"[{trace_id}] ════════════════════════════════")
 
         result = await adapter.execute(
             category=category,

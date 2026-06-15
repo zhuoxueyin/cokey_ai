@@ -21,6 +21,11 @@ export interface ModelItem {
   tags: string[]
   is_default: boolean
   param_schema?: ParamSchema
+  channel_bindings?: ChannelBinding[]
+  status?: 'online' | 'offline' | 'maintenance'
+  sort_order?: number
+  created_at?: string
+  updated_at?: string
 }
 
 export interface ParamSchema {
@@ -78,4 +83,50 @@ export interface GenerateRequest {
   category: 'text' | 'image' | 'video'
   session_id?: string
   params: Record<string, any>
+}
+
+export interface ChannelItem {
+  id: string
+  channel_code: string
+  channel_name: string
+  channel_type: 'aggregator' | 'direct'
+  base_url: string
+  auth_config: ChannelAuthConfig
+  retry_config: ChannelRetryConfig
+  rate_limit_config: ChannelRateLimitConfig
+  status: 'active' | 'inactive'
+  description?: string
+  created_at?: string
+  updated_at?: string
+}
+
+export interface ChannelAuthConfig {
+  text_api_key?: string
+  image_api_key?: string
+  video_api_key?: string
+}
+
+export interface ChannelRetryConfig {
+  timeout?: number
+  max_retries?: number
+  retry_delay?: number
+}
+
+export interface ChannelRateLimitConfig {
+  requests_per_minute?: number
+  requests_per_hour?: number
+  requests_per_day?: number
+}
+
+export interface TaskStats {
+  total: number
+  success: number
+  failed: number
+  processing: number
+  pending: number
+  by_category: Record<string, number>
+  by_model: Record<string, number>
+  by_status: Record<string, number>
+  avg_duration_ms: number
+  total_duration_ms: number
 }

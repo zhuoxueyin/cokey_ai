@@ -1,19 +1,28 @@
 @echo off
 chcp 65001 >nul
+title AIGC Frontend - Port 3001
 echo ========================================
-echo   AIGC 创作平台 - 前端启动脚本
+echo   AIGC Platform - Frontend
 echo ========================================
 echo.
 
 cd /d "%~dp0frontend"
 
 if not exist "node_modules" (
-    echo [INFO] 安装依赖...
-    npm install
+    echo [INFO] First launch: installing dependencies (this may take a few minutes)...
+    call npm install
+    if errorlevel 1 (
+        echo [ERROR] npm install failed. Please ensure Node.js is installed.
+        pause
+        exit /b 1
+    )
 )
 
 echo.
-echo [INFO] 启动前端开发服务器 (http://localhost:3000)...
-npm run dev
+echo [INFO] Starting frontend on http://localhost:3001
+echo.
+call npm run dev
 
+echo.
+echo [INFO] Frontend stopped.
 pause

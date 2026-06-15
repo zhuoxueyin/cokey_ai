@@ -83,10 +83,12 @@ class ModelService:
         if not ObjectId.is_valid(model_id):
             return None
         update_data = {}
-        for key in ["model_name", "category", "cover", "description", "tags", "channel_bindings",
+        for key in ["model_name", "category", "cover", "description", "tags",
                     "param_schema", "status", "sort_order", "is_default"]:
             if key in data:
                 update_data[key] = data[key]
+        if "channel_bindings" in data and data["channel_bindings"] is not None:
+            update_data["channel_bindings"] = data["channel_bindings"]
 
         if data.get("is_default") and update_data.get("is_default"):
             existing = await self.get_by_id(model_id)

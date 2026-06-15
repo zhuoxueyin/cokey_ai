@@ -104,12 +104,24 @@ async def get_session_tasks(session_id: str):
 @router.post("/generate")
 async def generate(data: TaskCreate):
     try:
+        import json
+        logger.info(f"[GENERATE] ═══════ 收到前端请求 ═══════")
+        logger.info(f"[GENERATE] model_code={data.model_code}")
+        logger.info(f"[GENERATE] category={data.category}")
+        logger.info(f"[GENERATE] session_id={data.session_id}")
+        try:
+            logger.info(f"[GENERATE] params=\n{json.dumps(data.params, ensure_ascii=False, indent=2)}")
+        except Exception as _e:
+            logger.info(f"[GENERATE] params_raw={data.params}")
+        logger.info(f"[GENERATE] ════════════════════════════════")
+
         model = await get_model_service().get_by_code(data.model_code)
         if not model:
             return error("model_not_found", f"模型不存在: {data.model_code}")
         if model.get("status") != "online":
             return error("model_offline", f"模型已下架")
 
+        logger.info(f"[GENERATE] 创建任务...")
         task = await get_task_service().create(
             model_code=data.model_code,
             category=data.category,
@@ -117,8 +129,10 @@ async def generate(data: TaskCreate):
             session_id=data.session_id
         )
 
+        logger.info(f"[GENERATE] 更新任务状态为 processing...")
         await get_task_service().update_status(task["task_id"], "processing")
 
+        logger.info(f"[GENERATE] 调用网关执行...")
         gateway = get_model_gateway()
         result = await gateway.execute(
             model_code=task["model_code"],

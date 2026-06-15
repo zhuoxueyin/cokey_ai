@@ -1,6 +1,6 @@
 from pydantic_settings import BaseSettings
-from typing import List
-from typing import Optional
+from pydantic import field_validator
+from typing import List, Optional
 
 
 class Settings(BaseSettings):
@@ -25,7 +25,7 @@ class Settings(BaseSettings):
     github_repo: str = ""
     github_branch: str = "main"
 
-    cors_origins: List[str] = ["http://localhost:3000", "http://localhost:5173"]
+    cors_origins: str = "http://localhost:3000,http://localhost:5173"
 
     rate_limit_requests_per_minute: int = 60
     rate_limit_window_seconds: int = 60
@@ -36,10 +36,23 @@ class Settings(BaseSettings):
 
     poll_interval: int = 1000
 
+    @property
+    def cors_origins_list(self) -> List[str]:
+        if isinstance(self.cors_origins, str):
+            if self.cors_origins.startswith("[") and self.cors_origins.endswith("]"):
+                try:
+                    import json
+                    return json.loads(self.cors_origins)
+                except Exception:
+                    pass
+            return [item.strip() for item in self.cors_origins.split(",") if item.strip()]
+        return list(self.cors_origins) if isinstance(self.cors_origins, list) else []
+
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"
         case_sensitive = False
+        extra = "ignore"
 
 
 settings = Settings()
