@@ -5,8 +5,22 @@ from typing import Any, Dict, Optional
 import time
 
 from app.core.logging_config import get_logger
+from app.core.config import settings
 
 logger = get_logger()
+
+
+def _is_placeholder(value: str) -> bool:
+    """判断是否为占位符（未配置的默认值）"""
+    if not value:
+        return True
+    v = value.strip().lower()
+    return (
+        v.startswith("your-")
+        or v == "xxx"
+        or v.startswith("placeholder")
+        or v.startswith("example")
+    )
 
 
 class BaseChannelAdapter(ABC):
@@ -41,14 +55,47 @@ class BaseChannelAdapter(ABC):
         """渠道异常转平台统一错误码和消息"""
         pass
 
+    async def query_task(self, external_task_id: str) -> Dict[str, Any]:
+        """查询外部任务状态（用于服务器重启后恢复任务）
+        
+        默认实现返回失败，具体渠道适配器需要覆盖此方法
+        """
+        logger.warning(f"[{self.trace_id}] 渠道 {self.channel_code} 未实现 query_task 方法")
+        return {"success": False, "error_code": "not_implemented", "error_message": "该渠道不支持任务查询"}
+
     def get_api_key_for_category(self, category: str) -> str:
+        """获取渠道 API Key：优先用数据库值，否则从 settings.weelink_api_key 读取
+        
+        新配置：所有分类共用一个 api_key
+        """
         auth_config = self.channel_config.get("auth_config", {})
-        key_map = {
-            "text": "text_api_key",
-            "image": "image_api_key",
-            "video": "video_api_key"
-        }
-        return auth_config.get(key_map.get(category, "text_api_key"), "") or auth_config.get("text_api_key", "")
+        raw_value = auth_config.get("api_key", "")
+        
+        # 兼容旧配置格式（多个 api_key）
+        if not raw_value:
+            key_map = {
+                "text": "text_api_key",
+                "image": "image_api_key",
+                "video": "video_api_key"
+            }
+            field_name = key_map.get(category, "text_api_key")
+            raw_value = auth_config.get(field_name, "") or auth_config.get("text_api_key", "")
+
+        if _is_placeholder(raw_value):
+            fallback_key = (settings.weelink_api_key or "").strip()
+            if fallback_key and not _is_placeholder(fallback_key):
+                logger.info(
+                    f"[{self.trace_id}] 渠道 {self.channel_code}: "
+                    f"api_key 使用环境变量 WEELINK_API_KEY (长度={len(fallback_key)})"
+                )
+                return fallback_key
+            logger.warning(
+                f"[{self.trace_id}] 渠道 {self.channel_code}: "
+                f"api_key 未配置（数据库值为占位符，settings.weelink_api_key 也为空）"
+            )
+            return ""
+
+        return raw_value
 
     async def execute(
         self,

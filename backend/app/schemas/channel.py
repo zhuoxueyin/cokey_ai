@@ -11,9 +11,15 @@ CHANNEL_STATUS_INACTIVE = "inactive"
 
 
 class ChannelAuthConfig(BaseModel):
-    text_api_key: Optional[str] = None
-    image_api_key: Optional[str] = None
-    video_api_key: Optional[str] = None
+    api_key: Optional[str] = None
+
+
+class ChannelApiConfig(BaseModel):
+    """渠道 API 路径配置"""
+    text_path: str = "/chat/completions"
+    image_path: str = "/images/generations"
+    video_path: str = "/videos/generations"
+    text_stream: bool = True
 
 
 class ChannelRetryConfig(BaseModel):
@@ -34,6 +40,7 @@ class ChannelBase(BaseModel):
     channel_type: str = Field(..., description="aggregator/direct")
     base_url: str = Field(..., description="接口根地址")
     auth_config: ChannelAuthConfig
+    api_config: ChannelApiConfig = Field(default_factory=ChannelApiConfig)
     retry_config: ChannelRetryConfig = Field(default_factory=ChannelRetryConfig)
     rate_limit_config: ChannelRateLimitConfig = Field(default_factory=ChannelRateLimitConfig)
     status: str = Field(default=CHANNEL_STATUS_ACTIVE)
@@ -49,6 +56,7 @@ class ChannelUpdate(BaseModel):
     channel_type: Optional[str] = None
     base_url: Optional[str] = None
     auth_config: Optional[ChannelAuthConfig] = None
+    api_config: Optional[ChannelApiConfig] = None
     retry_config: Optional[ChannelRetryConfig] = None
     rate_limit_config: Optional[ChannelRateLimitConfig] = None
     status: Optional[str] = None
@@ -62,6 +70,7 @@ class ChannelResponse(BaseModel):
     channel_type: str
     base_url: str
     auth_config: ChannelAuthConfig
+    api_config: ChannelApiConfig
     retry_config: ChannelRetryConfig
     rate_limit_config: ChannelRateLimitConfig
     status: str

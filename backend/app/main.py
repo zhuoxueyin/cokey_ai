@@ -1,13 +1,14 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from app.core.config import settings
 from app.core.database import init_mongodb
 from app.core.logging_config import get_logger
 from app.core.redis_client import init_redis
 
-from app.routers import health
-from app.routers import admin_channels, admin_models, admin_tasks
-from app.routers import user_models, user_tasks, user_sessions, user_upload
+from app.routers import health, assets, prompts
+from app.routers import admin_channels, admin_models, admin_tasks, admin_users
+from app.routers import user_models, user_tasks, user_sessions, user_upload, auth, user
 
 logger = get_logger()
 
@@ -35,6 +36,11 @@ app.include_router(user_models.router, prefix=api_prefix)
 app.include_router(user_tasks.router, prefix=api_prefix)
 app.include_router(user_sessions.router, prefix=api_prefix)
 app.include_router(user_upload.router, prefix=api_prefix)
+app.include_router(assets.router, prefix=api_prefix)
+app.include_router(prompts.router, prefix=api_prefix)
+app.include_router(auth.router, prefix=api_prefix)
+app.include_router(user.router, prefix=api_prefix)
+app.include_router(admin_users.router, prefix=api_prefix)
 
 
 @app.on_event("startup")
@@ -67,4 +73,5 @@ if __name__ == "__main__":
         host=settings.app_host,
         port=settings.app_port,
         reload=settings.app_debug,
+        timeout_keep_alive=120,  # 保持连接超时（秒）
     )

@@ -844,4 +844,543 @@ start-all.bat
 
 ---
 
+---
+
+## 十一、模型与渠道接入开发规范（强制）
+
+### 11.1 核心架构原则
+
+#### 11.1.1 适配器模式总览
+
+系统采用**适配器模式（Adapter Pattern）**实现多渠道统一接入，所有 AI 服务提供商必须通过适配器层抽象为一致的调用接口。
+
+```
+┌──────────────────────────────────────────────┐
+│          Model Gateway (模型网关)             │
+│  - 参数校验 → 渠道路由 → 故障切换 → 日志追踪   │
+└──────────────────┬───────────────────────────┘
+                   │ 调用
+                   ▼
+┌──────────────────────────────────────────────┐
+│      BaseChannelAdapter (抽象基类)            │
+│  - convert_params()    参数转换               │
+│  - call_api()          渠道 API 调用          │
+│  - parse_result()      结果解析               │
+│  - parse_error()       错误处理               │
+│  - get_api_key_for_category()  API Key 获取   │
+└──────────────┬───────────────────────────────┘
+               │ 继承实现
+     ┌─────────┼─────────┐
+     ▼         ▼         ▼
+┌────────┐ ┌────────┐ ┌────────┐
+│Weelink │ │Volceng │ │ 更多... │
+│Adapter │ │ Adapter│ │ Adapter│
+└────────┘ └────────┘ └────────┘
+```
+
+#### 11.1.2 强制分层约束
+
+| 层级 | 职责 | 禁止行为 |
+|------|------|----------|
+| **Model Gateway** | 路由选择、参数校验、故障切换 | 不直接调用外部 API |
+| **Channel Adapter** | 协议转换、HTTP 调用、结果解析 | 不包含业务逻辑、不操作数据库 |
+| **Channel Service** | 渠道 CRUD、API Key 加密/解密 | 不执行 HTTP 请求 |
+| **Model Service** | 模型 CRUD、渠道绑定管理 | 不执行生成任务 |
+
+**跨层调用禁令**：
+- ❌ Adapter 不得直接调用 Service 层
+- ❌ Gateway 不得绕过 Adapter 直接调用 HTTP
+- ❌ Router 不得直接操作 MongoDB
+
+---
+
+### 11.2 新增渠道适配器开发流程
+
+#### 步骤 1: 创建适配器文件
+
+在 `backend/app/adapters/` 下创建新适配器文件，命名规范：`{channel_name}.py`（小写下划线）
+
+**示例**：新增 OpenRouter 渠道 → 创建 `backend/app/adapters/openrouter.py`
+
+#### 步骤 2: 实现适配器类
+
+```python
+from __future__ import annotations
+from typing import Any, Dict
+import httpx
+from app.adapters.base import BaseChannelAdapter
+from app.core.logging_config import get_logger
+
+logger = get_logger()
+
+
+class OpenRouterAdapter(BaseChannelAdapter):
+    """OpenRouter 渠道适配器"""
+
+    def __init__(self, channel_config: Dict[str, Any], trace_id: str):
+        super().__init__(channel_config, trace_id)
+        self.timeout = self.retry_config.get("timeout", 60)
+        self.api_config = channel_config.get("api_config", {
+            "text_path": "/chat/completions",
+            "image_path": "/images/generations",
+            "video_path": "/videos/generations",
+            "text_stream": True,
+        })
+
+    async def convert_params(self, model_config: Dict[str, Any], params: Dict[str, Any]) -> Dict[str, Any]:
+        """将平台通用参数转换为渠道专属格式"""
+        # TODO: 根据渠道 API 文档实现参数转换逻辑
+        return params
+
+    async def call_api(self, category: str, channel_params: Dict[str, Any], 
+                       channel_model_id: str, api_key: str) -> Dict[str, Any]:
+        """调用渠道 HTTP API"""
+        # TODO: 实现 HTTP 请求逻辑（参考 weelinking.py 的 _http_post 方法）
+        pass
+
+    async def parse_result(self, category: str, raw_result: Dict[str, Any]) -> Dict[str, Any]:
+        """将渠道原始响应解析为平台统一格式"""
+        # TODO: 根据渠道响应格式实现解析逻辑
+        pass
+
+    def parse_error(self, exception: Exception) -> tuple[str, str]:
+        """将异常转换为统一错误码和消息"""
+        err_msg = str(exception).lower()
+        if "401" in err_msg or "unauthorized" in err_msg:
+            return "channel_error", "渠道鉴权失败，请检查 API 密钥"
+        elif "429" in err_msg or "rate limit" in err_msg:
+            return "service_unavailable", "模型服务繁忙，请稍后再试"
+        else:
+            return "internal_error", f"生成失败: {str(exception)[:200]}"
+```
+
+#### 步骤 3: 注册适配器
+
+在 `backend/app/adapters/__init__.py` 中注册新适配器：
+
+```python
+from app.adapters.openrouter import OpenRouterAdapter
+
+# 在 create_adapter 函数中添加判断逻辑
+def create_adapter(channel_config: Dict[str, Any], trace_id: str) -> Optional[BaseChannelAdapter]:
+    channel_type = channel_config.get("channel_type", "")
+    channel_code = channel_config.get("channel_code", "")
+
+    if channel_type == "aggregator" or channel_code.startswith("weelink"):
+        return WeelinkingAdapter(channel_config, trace_id)
+    
+    if channel_type == "volcengine" or channel_code.startswith("volcengine"):
+        return VolcengineAdapter(channel_config, trace_id)
+    
+    # ✅ 新增：OpenRouter 渠道
+    if channel_type == "openrouter" or channel_code.startswith("openrouter"):
+        return OpenRouterAdapter(channel_config, trace_id)
+
+    logger.warning(f"[{trace_id}] 未找到适配的渠道适配器: {channel_code}")
+    return WeelinkingAdapter(channel_config, trace_id)  # 默认降级
+
+# 在 ChannelAdapterRegistry 中注册
+ChannelAdapterRegistry.register("openrouter", OpenRouterAdapter)
+```
+
+#### 步骤 4: 编写单元测试脚本
+
+在 `backend/scripts/` 下创建测试脚本 `test_{channel_name}_adapter.py`：
+
+```python
+"""测试 OpenRouter 适配器"""
+import asyncio
+from app.adapters.openrouter import OpenRouterAdapter
+
+async def test_openrouter():
+    channel_config = {
+        "channel_code": "openrouter_test",
+        "base_url": "https://openrouter.ai/api/v1",
+        "auth_config": {"api_key": "your-test-key"},
+        "retry_config": {"timeout": 30, "max_retries": 1, "retry_delay": 1},
+        "api_config": {
+            "text_path": "/chat/completions",
+            "text_stream": False,
+        }
+    }
+    
+    adapter = OpenRouterAdapter(channel_config, "test_trace_001")
+    
+    # 测试文本生成
+    result = await adapter.execute(
+        category="text",
+        model_config={"model_code": "gpt-3.5-turbo"},
+        params={"prompt": "你好"},
+        channel_model_id="gpt-3.5-turbo",
+        api_key="your-test-key"
+    )
+    
+    print(f"测试结果: {result}")
+    assert result["success"] == True, f"测试失败: {result.get('error_message')}"
+
+if __name__ == "__main__":
+    asyncio.run(test_openrouter())
+```
+
+#### 步骤 5: 更新 agent.md
+
+在本文档的「11.5 已实现渠道清单」章节中新增渠道记录。
+
+---
+
+### 11.3 新增模型配置流程
+
+#### 前置条件
+
+1. 目标渠道已在 `channels` 集合中配置且状态为 `active`
+2. 渠道适配器已实现并注册
+3. 渠道 API Key 已正确配置（通过管理界面或环境变量）
+
+#### 步骤 1: 定义模型参数 Schema
+
+根据渠道 API 文档，定义模型的 `param_schema.fields`：
+
+```json
+{
+  "fields": [
+    {
+      "name": "prompt",
+      "label": "提示词",
+      "field_type": "textarea",
+      "required": true,
+      "placeholder": "请输入描述..."
+    },
+    {
+      "name": "temperature",
+      "label": "温度",
+      "field_type": "slider",
+      "required": false,
+      "default": 0.7,
+      "min": 0,
+      "max": 2,
+      "step": 0.1,
+      "help_text": "控制生成内容的随机性"
+    },
+    {
+      "name": "size",
+      "label": "尺寸",
+      "field_type": "select",
+      "required": false,
+      "default": "1024x1024",
+      "options": [
+        {"label": "1:1", "value": "1024x1024"},
+        {"label": "16:9", "value": "1792x1024"}
+      ]
+    }
+  ]
+}
+```
+
+**支持的 field_type**：
+- `text`: 单行文本输入
+- `textarea`: 多行文本输入
+- `number`: 数字输入框
+- `slider`: 滑块控件
+- `select`: 下拉选择框
+- `switch`: 开关按钮
+- `image_upload`: 图片上传控件
+
+#### 步骤 2: 配置渠道绑定
+
+在 `channel_bindings` 数组中绑定至少一个渠道：
+
+```json
+{
+  "channel_bindings": [
+    {
+      "channel_code": "weelink_image",
+      "channel_model_id": "dall-e-3",
+      "priority": 1,
+      "status": "active"
+    },
+    {
+      "channel_code": "openrouter_image",
+      "channel_model_id": "stable-diffusion-xl",
+      "priority": 2,
+      "status": "active"
+    }
+  ]
+}
+```
+
+**字段说明**：
+- `channel_code`: 引用 `channels.channel_code`
+- `channel_model_id`: 渠道侧实际的模型 ID（可能与平台 `model_code` 不同）
+- `priority`: 优先级（数字越大越优先被选中）
+- `status`: `"active"` / `"inactive"`
+
+#### 步骤 3: 通过管理界面或 API 创建模型
+
+**方式 A: 管理界面**
+1. 访问前端「系统管理 → 模型管理」
+2. 点击「新建模型」
+3. 填写模型信息、参数 Schema、渠道绑定
+4. 保存后自动写入 MongoDB
+
+**方式 B: API 调用**
+```bash
+curl -X POST http://localhost:8000/api/admin/models \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model_code": "my-new-model",
+    "model_name": "我的新模型",
+    "category": "text",
+    "channel_bindings": [
+      {
+        "channel_code": "weelink_text",
+        "channel_model_id": "gpt-4o",
+        "priority": 1,
+        "status": "active"
+      }
+    ],
+    "param_schema": {
+      "fields": [
+        {
+          "name": "prompt",
+          "label": "提示词",
+          "field_type": "textarea",
+          "required": true
+        }
+      ]
+    },
+    "status": "online",
+    "is_default": false
+  }'
+```
+
+#### 步骤 4: 验证模型可用性
+
+```bash
+# 1. 查询模型列表
+curl http://localhost:8000/api/models?category=text
+
+# 2. 执行生成测试
+curl -X POST http://localhost:8000/api/tasks/generate \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model_code": "my-new-model",
+    "category": "text",
+    "params": {"prompt": "测试提示词"}
+  }'
+```
+
+---
+
+### 11.4 渠道 API 调用规范
+
+#### 11.4.1 HTTP 请求标准
+
+所有渠道适配器必须遵循以下 HTTP 调用规范：
+
+```python
+async def _http_post(self, url: str, body: Dict[str, Any], api_key: str) -> Dict[str, Any]:
+    """统一 HTTP POST 请求，带重试和日志"""
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+
+    last_error = None
+    max_retries = self.retry_config.get("max_retries", 1)
+
+    for attempt in range(max_retries):
+        try:
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                response = await client.post(url, json=body, headers=headers)
+
+            if response.status_code == 200:
+                return response.json()
+            else:
+                # 记录错误日志
+                logger.error(f"[{self.trace_id}] HTTP {response.status_code}: {response.text[:500]}")
+                
+                # 根据状态码抛出具体异常
+                if response.status_code == 401:
+                    raise Exception(f"401 Unauthorized - API Key 无效")
+                elif response.status_code == 429:
+                    raise Exception(f"429 Too Many Requests - 超出频率限制")
+                elif response.status_code >= 500:
+                    raise Exception(f"{response.status_code} Server Error")
+                else:
+                    raise Exception(f"HTTP {response.status_code}: {response.text[:200]}")
+                    
+        except Exception as e:
+            last_error = e
+            logger.warning(f"[{self.trace_id}] 请求失败 (attempt {attempt+1}): {e}")
+            if attempt < max_retries - 1:
+                wait_time = self.retry_config.get("retry_delay", 2)
+                time.sleep(wait_time)
+
+    raise last_error or Exception("HTTP 请求失败")
+```
+
+#### 11.4.2 错误码映射规范
+
+适配器必须在 `parse_error()` 中将渠道异常映射为统一错误码：
+
+| 渠道异常特征 | 统一错误码 | 用户提示文案 |
+|------------|-----------|-------------|
+| 401 / Unauthorized / Invalid Key | `channel_error` | 渠道鉴权失败，请检查 API 密钥 |
+| 429 / Rate Limit / Quota Exceeded | `service_unavailable` | 模型服务繁忙，请稍后再试 |
+| Timeout / Timed Out | `timeout` | 生成超时，请稍后重试 |
+| Content Policy / Safety Violation | `content_violation` | 内容不符合规范，请调整提示词 |
+| 404 / Not Found | `channel_error` | 模型不存在或已下线 |
+| 500 / 502 / 503 / Server Error | `service_unavailable` | 服务暂不可用 |
+| 其他未知异常 | `internal_error` | 生成失败: {异常信息前200字符} |
+
+#### 11.4.3 结果解析统一格式
+
+适配器必须在 `parse_result()` 中将渠道响应转换为平台统一格式：
+
+**文本生成**：
+```python
+{
+    "type": "text",
+    "text": "生成的文本内容",
+    "choices": [...],  # 原始 choices 数组（可选）
+    "usage": {...}     # Token 用量统计（可选）
+}
+```
+
+**图像生成**：
+```python
+{
+    "type": "image",
+    "images": [
+        {
+            "url": "https://cdn.example.com/image.png",
+            "revised_prompt": "优化后的提示词"  # 可选
+        }
+    ],
+    "count": 1
+}
+```
+
+**视频生成**：
+```python
+{
+    "type": "video",
+    "videos": [
+        {
+            "url": "https://cdn.example.com/video.mp4",
+            "revised_prompt": "优化后的提示词"  # 可选
+        }
+    ],
+    "count": 1
+}
+```
+
+---
+
+### 11.5 已实现渠道清单
+
+#### Weelink 渠道（聚合平台）
+
+| 项目 | 说明 |
+|------|------|
+| **适配器文件** | `backend/app/adapters/weelinking.py` |
+| **支持分类** | text / image / video |
+| **API 兼容** | OpenAI 兼容格式 |
+| **流式支持** | ✅ 文本支持 SSE 流式响应 |
+| **认证方式** | Bearer Token (`Authorization: Bearer {api_key}`) |
+| **关键特性** | - 文本生成强制启用 `stream=True`<br>- 支持多张图片输入（vision）<br>- 自动收集 SSE 数据流组装完整响应 |
+| **配置示例** | ```json<br>{<br>  "channel_code": "weelink_text",<br>  "base_url": "https://api.weelink.ai/v1",<br>  "auth_config": {"api_key": "encrypted_key"},<br>  "api_config": {<br>    "text_path": "/chat/completions",<br>    "image_path": "/images/generations",<br>    "video_path": "/videos/generations",<br>    "text_stream": true<br>  }<br>}<br>``` |
+
+#### Volcengine 渠道（平台直连）
+
+| 项目 | 说明 |
+|------|------|
+| **适配器文件** | `backend/app/adapters/volcengine.py` |
+| **渠道类型** | `direct`（平台直连模式） |
+| **支持分类** | video（主要）/ text / image |
+| **API 格式** | 异步任务模式（创建任务 + 轮询状态） |
+| **流式支持** | ❌ 不支持流式 |
+| **认证方式** | Bearer Token |
+| **关键特性** | - 视频生成使用异步任务模式<br>- 自动轮询任务状态（默认 60 次，间隔 5 秒）<br>- 支持多图/多视频/多音频参考输入<br>- **直连火山引擎官方 API，非聚合平台中转** |
+| **配置示例** | ```json<br>{<br>  "channel_code": "volcengine_video",<br>  "channel_name": "火山引擎视频生成",<br>  "channel_type": "direct",<br>  "base_url": "https://ark.cn-beijing.volces.com",<br>  "auth_config": {"api_key": "encrypted_key"},<br>  "api_config": {<br>    "video_path": "/api/v3/contents/generations/tasks",<br>    "text_stream": false<br>  },<br>  "retry_config": {<br>    "timeout": 120,<br>    "poll_interval": 5,<br>    "max_poll_attempts": 60<br>  }<br>}<br>``` |
+| **迁移说明** | 旧版渠道配置中 `channel_type: "volcengine"` 仍兼容，但建议改为 `"direct"` 以符合规范。系统会在日志中输出警告提示。<br><br>**迁移步骤**：<br>1. 执行迁移脚本：`cd backend && python scripts/migrate_volcengine_to_direct.py`<br>2. 确认迁移（输入 yes）<br>3. 重启后端服务：`python launcher.py restart`<br>4. 验证日志无警告信息 |
+
+---
+
+### 11.6 调试与排查指南
+
+#### 问题 1: 渠道调用返回 "没有可用的渠道绑定"
+
+**排查步骤**：
+1. 检查模型的 `channel_bindings` 是否为空
+   ```bash
+   # MongoDB 查询
+   db.models.findOne({model_code: "gpt-5.5"}, {channel_bindings: 1})
+   ```
+2. 确认绑定的渠道状态为 `"active"`
+3. 确认渠道本身状态为 `"active"`
+   ```bash
+   db.channels.findOne({channel_code: "weelink_text"}, {status: 1})
+   ```
+4. 检查渠道优先级排序是否正确
+
+#### 问题 2: 渠道鉴权失败（401）
+
+**排查步骤**：
+1. 查看后端日志中的 Trace ID
+   ```bash
+   python launcher.py log backend | grep "trace_xxx"
+   ```
+2. 确认渠道配置中的 `auth_config.api_key` 已正确加密存储
+3. 测试 API Key 是否有效
+   ```bash
+   curl -H "Authorization: Bearer YOUR_API_KEY" \
+        https://api.weelink.ai/v1/chat/completions \
+        -d '{"model": "gpt-3.5-turbo", "messages": [{"role": "user", "content": "hi"}]}'
+   ```
+4. 如 API Key 过期，在管理界面重新配置
+
+#### 问题 3: 适配器未被调用
+
+**排查步骤**：
+1. 确认 `backend/app/adapters/__init__.py` 中已注册新适配器
+2. 检查 `create_adapter()` 函数的判断逻辑是否匹配 `channel_code` 或 `channel_type`
+3. 查看日志中是否有 `未找到适配的渠道适配器` 警告
+4. 重启后端服务使注册生效
+   ```bash
+   python launcher.py restart
+   ```
+
+#### 问题 4: 参数转换错误
+
+**排查步骤**：
+1. 在适配器的 `convert_params()` 方法中添加日志
+   ```python
+   logger.info(f"[{self.trace_id}] 原始参数: {params}")
+   logger.info(f"[{self.trace_id}] 转换后参数: {channel_params}")
+   ```
+2. 对比渠道 API 文档，确认参数格式是否正确
+3. 检查必填参数是否遗漏
+4. 使用测试脚本单独验证参数转换逻辑
+
+---
+
+### 11.7 交付验收清单
+
+新增渠道或模型后，必须完成以下验收项：
+
+- [ ] 适配器文件已创建并实现所有抽象方法
+- [ ] 适配器已在 `__init__.py` 中注册
+- [ ] 渠道配置已写入 MongoDB（或通过管理界面创建）
+- [ ] API Key 已正确配置（加密存储）
+- [ ] 模型 `param_schema` 已定义且字段类型正确
+- [ ] 模型 `channel_bindings` 已配置至少一个 active 渠道
+- [ ] 单元测试脚本已编写并通过
+- [ ] 端到端生成测试成功（前端 → 后端 → 渠道 → 返回结果）
+- [ ] 错误场景已测试（401、429、超时等）
+- [ ] agent.md 已更新（新增渠道记录、配置示例）
+- [ ] 日志输出清晰，包含 Trace ID 便于排查
+
+---
+
 *文档结束 - AIGC Platform Agent v1.0*

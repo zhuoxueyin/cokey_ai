@@ -47,6 +47,13 @@ class ChannelBinding(BaseModel):
     status: str = "active"
 
 
+class SupportedInputs(BaseModel):
+    """模型支持的输入类型"""
+    image: Optional[bool] = None
+    video: Optional[bool] = None
+    audio: Optional[bool] = None
+
+
 class ModelBase(BaseModel):
     model_code: str = Field(..., min_length=2, max_length=50)
     model_name: str = Field(..., min_length=1, max_length=200)
@@ -59,6 +66,7 @@ class ModelBase(BaseModel):
     status: str = Field(default=MODEL_STATUS_ONLINE)
     sort_order: int = 0
     is_default: bool = False
+    supported_inputs: Optional[SupportedInputs] = None
 
 
 class ModelCreate(ModelBase):
@@ -76,6 +84,7 @@ class ModelUpdate(BaseModel):
     status: Optional[str] = None
     sort_order: Optional[int] = None
     is_default: Optional[bool] = None
+    supported_inputs: Optional[SupportedInputs] = None
 
 
 class ModelResponse(BaseModel):
@@ -91,6 +100,7 @@ class ModelResponse(BaseModel):
     status: str
     sort_order: int
     is_default: bool
+    supported_inputs: Optional[SupportedInputs] = None
     created_at: datetime
     updated_at: datetime
 

@@ -31,6 +31,20 @@ async def get_task(task_id: str):
     return success(doc)
 
 
+@router.post("/cancel/all")
+async def cancel_all_running():
+    result = await get_task_service().cancel_all_running()
+    return success(result)
+
+
+@router.post("/{task_id}/cancel")
+async def cancel_task(task_id: str):
+    success = await get_task_service().cancel_task(task_id)
+    if not success:
+        return error("not_found", "任务不存在或已完成")
+    return success({"message": "任务已停止"})
+
+
 @router.get("/stats/overview")
 async def get_task_stats(
     start_time: Optional[datetime] = Query(None),

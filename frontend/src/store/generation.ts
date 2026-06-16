@@ -1,14 +1,18 @@
 import { create } from 'zustand'
 import type { ModelItem, TaskItem, TaskResult } from '@/types'
 
+// 服务端任务管理 - 不再使用localStorage
+
 interface GenerationState {
   activeCategory: 'text' | 'image' | 'video'
   currentModel: ModelItem | null
   params: Record<string, any>
   sessionId: string | null
+  userId: string | null  // 当前用户ID
   tasks: TaskItem[]
   isGenerating: boolean
   currentTask: Partial<TaskItem> | null
+  availableModels: ModelItem[]
 }
 
 interface GenerationActions {
@@ -17,12 +21,16 @@ interface GenerationActions {
   setParams: (params: Record<string, any>) => void
   updateParam: (key: string, value: any) => void
   setSessionId: (id: string) => void
+  setUserId: (id: string | null) => void
   setTasks: (tasks: TaskItem[]) => void
   addTask: (task: TaskItem) => void
   updateTask: (taskId: string, updates: Partial<TaskItem>) => void
   setIsGenerating: (val: boolean) => void
   setCurrentTask: (task: Partial<TaskItem> | null) => void
+  setAvailableModels: (models: ModelItem[]) => void
   resetParams: () => void
+  clearTasks: () => void
+  setParamsWithCategory: (category: 'text' | 'image' | 'video', params: Record<string, any>, modelCode?: string) => void
 }
 
 export const useGenerationStore = create<GenerationState & GenerationActions>((set, get) => ({
@@ -30,9 +38,11 @@ export const useGenerationStore = create<GenerationState & GenerationActions>((s
   currentModel: null,
   params: {},
   sessionId: null,
-  tasks: [],
+  userId: 'default_user',  // 默认用户ID，后续可从登录状态获取
+  tasks: [],  // 任务从服务端获取
   isGenerating: false,
   currentTask: null,
+  availableModels: [],
 
   setCategory: (category) => {
     set({ activeCategory: category, params: {}, currentModel: null })
@@ -51,14 +61,20 @@ export const useGenerationStore = create<GenerationState & GenerationActions>((s
   setParams: (params) => set({ params }),
   updateParam: (key, value) => set((state) => ({ params: { ...state.params, [key]: value } })),
   setSessionId: (id) => set({ sessionId: id }),
+  setUserId: (id) => set({ userId: id }),
   setTasks: (tasks) => set({ tasks }),
-  addTask: (task) => set((state) => ({ tasks: [...state.tasks, task] })),
-  updateTask: (taskId, updates) =>
+  addTask: (task) => {
+    // 新任务添加到数组末尾，符合聊天对话习惯（最新的在底部）
+    set((state) => ({ tasks: [...state.tasks, task] }))
+  },
+  updateTask: (taskId, updates) => {
     set((state) => ({
-      tasks: state.tasks.map((t) => (t.task_id === taskId ? { ...t, ...updates } : t)),
-    })),
+      tasks: state.tasks.map((t) => (t.task_id === taskId ? { ...t, ...updates } : t))
+    }))
+  },
   setIsGenerating: (val) => set({ isGenerating: val }),
   setCurrentTask: (task) => set({ currentTask: task }),
+  setAvailableModels: (models) => set({ availableModels: models }),
   resetParams: () => {
     const model = get().currentModel
     const defaults: Record<string, any> = {}
@@ -71,4 +87,98 @@ export const useGenerationStore = create<GenerationState & GenerationActions>((s
     }
     set({ params: defaults })
   },
+  clearTasks: () => set({ tasks: [] }),
+  setParamsWithCategory: (category, params, modelCode) => {
+    const state = get()
+    let model: ModelItem | null = null
+    if (modelCode) {
+      model = state.availableModels.find(m => m.model_code === modelCode) || null
+    }
+    if (!model) {
+      model = state.availableModels.find(m => m.category === category && m.is_default) || null
+    }
+    set({ activeCategory: category, params, currentModel: model })
+  },
 }))
+
+// 验证 processing 状态的任务实际状态
+export const validateProcessingTasks = async (tasks: TaskItem[]): Promise<TaskItem[]> => {
+  const processingTasks = tasks.filter(t => t.status === 'processing' || t.status === 'pending')
+  if (processingTasks.length === 0) {
+    return tasks
+  }
+
+  try {
+    const { getTaskStatus } = await import('@/api')
+    const updatedTasks = [...tasks]
+
+    for (const task of processingTasks) {
+      if (task.task_id && !task.task_id.startsWith('task_local_')) {
+        try {
+          const res = await getTaskStatus(task.task_id)
+          if (res.code === 'success' && res.data) {
+            const index = updatedTasks.findIndex(t => t.task_id === task.task_id)
+            if (index !== -1) {
+              updatedTasks[index] = {
+                ...updatedTasks[index],
+                status: res.data.status,
+                result: res.data.result,
+                error_message: res.data.error_message,
+                duration_ms: res.data.duration_ms,
+              }
+            }
+          }
+        } catch (e) {
+          console.error(`验证任务状态失败 ${task.task_id}:`, e)
+        }
+      }
+    }
+    return updatedTasks
+  } catch (e) {
+    console.error('验证处理中任务状态失败:', e)
+    return tasks
+  }
+}
+
+// 从后端同步任务（确保与任务管理页面一致）
+export const syncTasksFromBackend = async (userId?: string, sessionId?: string): Promise<TaskItem[]> => {
+  try {
+    const { listTasks } = await import('@/api')
+    const res = await listTasks({ page: 1, page_size: 100, session_id: sessionId, user_id: userId })
+    if (res.code === 'success' && res.data && res.data.data) {
+      // 后端返回分页结构：{ data: [...], total: N, page: N, page_size: N }
+      return res.data.data as TaskItem[]
+    }
+    return []
+  } catch (e) {
+    console.error('从后端同步任务失败:', e)
+    return []
+  }
+}
+
+// 创建会话
+export const createSession = async (category: string, userId?: string): Promise<string | null> => {
+  try {
+    const { createSession } = await import('@/api')
+    const res = await createSession({ category, user_id: userId })
+    if (res.code === 'success' && res.data) {
+      return res.data.session_id
+    }
+    return null
+  } catch (e) {
+    console.error('创建会话失败:', e)
+    return null
+  }
+}
+
+// 更新会话上下文
+export const updateSessionContext = async (sessionId: string, context: Record<string, any>): Promise<boolean> => {
+  try {
+    const { updateSessionContext } = await import('@/api')
+    const res = await updateSessionContext(sessionId, context)
+    return res.code === 'success'
+  } catch (e) {
+    console.error('更新会话上下文失败:', e)
+    return false
+  }
+}

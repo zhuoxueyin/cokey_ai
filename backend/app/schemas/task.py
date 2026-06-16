@@ -15,6 +15,7 @@ class TaskBase(BaseModel):
     model_code: str
     category: str
     session_id: Optional[str] = None
+    user_id: Optional[str] = None  # 新增：用户ID，用于多用户隔离
 
 
 class TaskCreate(TaskBase):

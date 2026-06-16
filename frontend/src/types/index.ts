@@ -26,6 +26,11 @@ export interface ModelItem {
   sort_order?: number
   created_at?: string
   updated_at?: string
+  supported_inputs?: {
+    image?: boolean
+    video?: boolean
+    audio?: boolean
+  }
 }
 
 export interface ParamSchema {
@@ -67,7 +72,11 @@ export interface TaskItem {
   result?: TaskResult
   error_message?: string
   duration_ms?: number
+  trace_id?: string
+  channel_request?: Record<string, any>    // 渠道请求参数
+  channel_response?: Record<string, any>   // 渠道响应（视频类型包含create和query）
   created_at: string
+  updated_at?: string
 }
 
 export interface TaskResult {
@@ -92,6 +101,7 @@ export interface ChannelItem {
   channel_type: 'aggregator' | 'direct'
   base_url: string
   auth_config: ChannelAuthConfig
+  api_config: ChannelApiConfig
   retry_config: ChannelRetryConfig
   rate_limit_config: ChannelRateLimitConfig
   status: 'active' | 'inactive'
@@ -101,9 +111,14 @@ export interface ChannelItem {
 }
 
 export interface ChannelAuthConfig {
-  text_api_key?: string
-  image_api_key?: string
-  video_api_key?: string
+  api_key?: string
+}
+
+export interface ChannelApiConfig {
+  text_path?: string
+  image_path?: string
+  video_path?: string
+  text_stream?: boolean
 }
 
 export interface ChannelRetryConfig {
@@ -119,14 +134,52 @@ export interface ChannelRateLimitConfig {
 }
 
 export interface TaskStats {
-  total: number
-  success: number
-  failed: number
-  processing: number
-  pending: number
-  by_category: Record<string, number>
-  by_model: Record<string, number>
-  by_status: Record<string, number>
+  total_tasks: number
+  success_count: number
+  failed_count: number
+  pending_count: number
+  processing_count: number
+  success_rate: number
   avg_duration_ms: number
-  total_duration_ms: number
+  category_breakdown: {
+    text: number
+    image: number
+    video: number
+  }
+}
+
+export interface AssetItem {
+  id: string
+  file_name: string
+  file_path: string
+  url: string
+  cdn_urls: string[]
+  file_size: number
+  content_type: string
+  category: 'image' | 'file' | 'video'
+  source_type: 'upload' | 'generated'
+  created_at: string
+  updated_at: string
+}
+
+export interface AssetListResponse {
+  items: AssetItem[]
+  total: number
+  page: number
+  page_size: number
+}
+
+// 提示词类型
+export interface PromptItem {
+  _id: string
+  name: string
+  content: string
+  category: 'text' | 'image' | 'video'
+  tags: string[]
+  description: string
+  is_active: boolean
+  version: number
+  published_version: number | null
+  created_at: string
+  updated_at: string
 }

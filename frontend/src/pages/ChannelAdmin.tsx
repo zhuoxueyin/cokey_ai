@@ -17,6 +17,7 @@ import {
   Tooltip,
   Empty,
   Divider,
+  Switch,
 } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import {
@@ -55,9 +56,11 @@ interface ChannelFormData {
   base_url: string
   description?: string
   status: 'active' | 'inactive'
-  text_api_key?: string
-  image_api_key?: string
-  video_api_key?: string
+  api_key?: string
+  text_path: string
+  image_path: string
+  video_path: string
+  text_stream: boolean
   retry_timeout: number
   retry_max_retries: number
   retry_retry_delay: number
@@ -101,6 +104,10 @@ export default function ChannelAdmin() {
     form.setFieldsValue({
       channel_type: 'direct',
       status: 'active',
+      text_path: '/chat/completions',
+      image_path: '/images/generations',
+      video_path: '/videos/generations',
+      text_stream: true,
       retry_timeout: 30,
       retry_max_retries: 3,
       retry_retry_delay: 2,
@@ -120,9 +127,11 @@ export default function ChannelAdmin() {
       base_url: record.base_url,
       description: record.description,
       status: record.status,
-      text_api_key: record.auth_config?.text_api_key,
-      image_api_key: record.auth_config?.image_api_key,
-      video_api_key: record.auth_config?.video_api_key,
+      api_key: record.auth_config?.api_key,
+      text_path: record.api_config?.text_path || '/chat/completions',
+      image_path: record.api_config?.image_path || '/images/generations',
+      video_path: record.api_config?.video_path || '/videos/generations',
+      text_stream: record.api_config?.text_stream !== undefined ? record.api_config.text_stream : true,
       retry_timeout: record.retry_config?.timeout || 30,
       retry_max_retries: record.retry_config?.max_retries || 3,
       retry_retry_delay: record.retry_config?.retry_delay || 2,
@@ -155,9 +164,13 @@ export default function ChannelAdmin() {
         description: values.description,
         status: values.status,
         auth_config: {
-          text_api_key: values.text_api_key,
-          image_api_key: values.image_api_key,
-          video_api_key: values.video_api_key,
+          api_key: values.api_key,
+        },
+        api_config: {
+          text_path: values.text_path,
+          image_path: values.image_path,
+          video_path: values.video_path,
+          text_stream: values.text_stream,
         },
         retry_config: {
           timeout: values.retry_timeout,
@@ -271,7 +284,7 @@ export default function ChannelAdmin() {
   ]
 
   return (
-    <div>
+    <div style={{ padding: 24, height: '100%', overflowY: 'auto', boxSizing: 'border-box' }}>
       <Card
         title="渠道管理"
         extra={
@@ -361,19 +374,35 @@ export default function ChannelAdmin() {
 
           <Divider style={{ margin: '12px 0' }}>认证配置</Divider>
           <Row gutter={16}>
+            <Col span={24}>
+              <Form.Item name="api_key" label="API Key">
+                <Input placeholder="sk-..." />
+              </Form.Item>
+            </Col>
+          </Row>
+
+          <Divider style={{ margin: '12px 0' }}>API 路径配置</Divider>
+          <Row gutter={16}>
             <Col span={8}>
-              <Form.Item name="text_api_key" label="文本模型 API Key">
-                <Input.Password placeholder="sk-..." />
+              <Form.Item name="text_path" label="文本接口路径">
+                <Input placeholder="/chat/completions" />
               </Form.Item>
             </Col>
             <Col span={8}>
-              <Form.Item name="image_api_key" label="图像模型 API Key">
-                <Input.Password placeholder="sk-..." />
+              <Form.Item name="image_path" label="图像接口路径">
+                <Input placeholder="/images/generations" />
               </Form.Item>
             </Col>
             <Col span={8}>
-              <Form.Item name="video_api_key" label="视频模型 API Key">
-                <Input.Password placeholder="sk-..." />
+              <Form.Item name="video_path" label="视频接口路径">
+                <Input placeholder="/videos/generations" />
+              </Form.Item>
+            </Col>
+          </Row>
+          <Row gutter={16}>
+            <Col span={8}>
+              <Form.Item name="text_stream" label="文本流式响应" valuePropName="checked">
+                <Switch checkedChildren="开启" unCheckedChildren="关闭" />
               </Form.Item>
             </Col>
           </Row>
@@ -453,17 +482,35 @@ export default function ChannelAdmin() {
             <Divider style={{ margin: '12px 0' }}>认证配置</Divider>
             <Card size="small" style={{ marginBottom: 8 }}>
               <Row gutter={8}>
+                <Col span={24}>
+                  <div style={{ color: '#888', fontSize: 12 }}>API Key</div>
+                  <div>{viewItem.auth_config?.api_key || '未设置'}</div>
+                </Col>
+              </Row>
+            </Card>
+
+            <Divider style={{ margin: '12px 0' }}>API 路径配置</Divider>
+            <Card size="small" style={{ marginBottom: 8 }}>
+              <Row gutter={8}>
                 <Col span={8}>
-                  <div style={{ color: '#888', fontSize: 12 }}>文本 API Key</div>
-                  <div>{viewItem.auth_config?.text_api_key ? '******' : '未设置'}</div>
+                  <div style={{ color: '#888', fontSize: 12 }}>文本路径</div>
+                  <code>{viewItem.api_config?.text_path || '/chat/completions'}</code>
                 </Col>
                 <Col span={8}>
-                  <div style={{ color: '#888', fontSize: 12 }}>图像 API Key</div>
-                  <div>{viewItem.auth_config?.image_api_key ? '******' : '未设置'}</div>
+                  <div style={{ color: '#888', fontSize: 12 }}>图像路径</div>
+                  <code>{viewItem.api_config?.image_path || '/images/generations'}</code>
                 </Col>
                 <Col span={8}>
-                  <div style={{ color: '#888', fontSize: 12 }}>视频 API Key</div>
-                  <div>{viewItem.auth_config?.video_api_key ? '******' : '未设置'}</div>
+                  <div style={{ color: '#888', fontSize: 12 }}>视频路径</div>
+                  <code>{viewItem.api_config?.video_path || '/videos/generations'}</code>
+                </Col>
+              </Row>
+              <Row gutter={8} style={{ marginTop: 8 }}>
+                <Col span={8}>
+                  <div style={{ color: '#888', fontSize: 12 }}>流式响应</div>
+                  <Tag color={viewItem.api_config?.text_stream ? 'green' : 'default'}>
+                    {viewItem.api_config?.text_stream ? '开启' : '关闭'}
+                  </Tag>
                 </Col>
               </Row>
             </Card>

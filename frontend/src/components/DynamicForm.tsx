@@ -165,10 +165,12 @@ export default function DynamicForm() {
   const hasRequired = fields.some((f) => f.required)
   const requiredEmpty = fields.some((f) => f.required && (params[f.name] === undefined || params[f.name] === '' || params[f.name] === null))
   const promptEmptyForText = activeCategory === 'text' && !params.prompt
+  const promptEmptyForImage = activeCategory === 'image' && !params.prompt && !params.positive_prompt
+  const needPromptEmpty = (activeCategory === 'text' && promptEmptyForText) || (activeCategory === 'image' && promptEmptyForImage)
 
   const handleSubmit = async () => {
-    if (promptEmptyForText) {
-      message.warning('请先在"输入内容"中填写内容描述')
+    if (needPromptEmpty) {
+      message.warning('请先在"图像描述"或"输入内容"中填写描述')
       return
     }
     if (requiredEmpty) {
@@ -198,22 +200,23 @@ export default function DynamicForm() {
       const res = await generate({
         model_code: currentModel.model_code,
         category: activeCategory,
-        session_id: sessionId,
+        session_id: sessionId ?? undefined,
+        user_id: useGenerationStore.getState().userId ?? undefined,
         params: { ...params },
       })
 
       if (res.code === 'success' && res.data) {
-        if (!sessionId && res.data.session_id) {
-          setSessionId(res.data.session_id)
+        if (!sessionId && (res.data as any).session_id) {
+          setSessionId((res.data as any).session_id)
         }
         const store = useGenerationStore.getState()
-        const updated = store.tasks.map((t) =>
+        const updated: any[] = store.tasks.map((t) =>
           t.task_id === taskId
             ? {
                 ...t,
                 status: 'success',
-                result: res.data.result,
-                duration_ms: res.data.duration_ms,
+                result: (res.data as any).result,
+                duration_ms: (res.data as any).duration_ms,
                 error_message: undefined,
               }
             : t
@@ -222,7 +225,7 @@ export default function DynamicForm() {
         message.success('生成完成')
       } else {
         const store = useGenerationStore.getState()
-        const updated = store.tasks.map((t) =>
+        const updated: any[] = store.tasks.map((t) =>
           t.task_id === taskId
             ? { ...t, status: 'failed', error_message: res.message || '生成失败' }
             : t
@@ -231,7 +234,7 @@ export default function DynamicForm() {
       }
     } catch (err: any) {
       const store = useGenerationStore.getState()
-      const updated = store.tasks.map((t) =>
+      const updated: any[] = store.tasks.map((t) =>
         t.task_id === taskId
           ? { ...t, status: 'failed', error_message: err.message || '生成失败' }
           : t
@@ -287,7 +290,7 @@ export default function DynamicForm() {
               icon={<ThunderboltOutlined />}
               onClick={handleSubmit}
               loading={submitting}
-              disabled={promptEmptyForText || requiredEmpty}
+              disabled={needPromptEmpty || requiredEmpty}
             >
               立即生成
             </Button>

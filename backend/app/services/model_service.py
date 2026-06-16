@@ -28,6 +28,7 @@ class ModelService:
             "tags": data.get("tags", []),
             "channel_bindings": data.get("channel_bindings", []),
             "param_schema": data.get("param_schema", {"fields": []}),
+            "supported_inputs": data.get("supported_inputs", {}),
             "status": data.get("status", "online"),
             "sort_order": data.get("sort_order", 0),
             "is_default": data.get("is_default", False),
@@ -84,7 +85,7 @@ class ModelService:
             return None
         update_data = {}
         for key in ["model_name", "category", "cover", "description", "tags",
-                    "param_schema", "status", "sort_order", "is_default"]:
+                    "param_schema", "supported_inputs", "status", "sort_order", "is_default"]:
             if key in data:
                 update_data[key] = data[key]
         if "channel_bindings" in data and data["channel_bindings"] is not None:
@@ -197,6 +198,7 @@ class ModelService:
             "tags": doc.get("tags", []),
             "channel_bindings": doc.get("channel_bindings", []),
             "param_schema": doc.get("param_schema", {"fields": []}),
+            "supported_inputs": doc.get("supported_inputs", {}),
             "status": doc["status"],
             "sort_order": doc.get("sort_order", 0),
             "is_default": doc.get("is_default", False),
@@ -214,6 +216,7 @@ class ModelService:
             "description": doc.get("description", ""),
             "tags": doc.get("tags", []),
             "param_schema": doc.get("param_schema", {"fields": []}),
+            "supported_inputs": doc.get("supported_inputs", {}),
             "is_default": doc.get("is_default", False),
         }
 

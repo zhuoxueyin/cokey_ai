@@ -15,13 +15,15 @@ class SessionService:
     def __init__(self):
         self.collection = get_collection("sessions")
 
-    async def create(self, category: str) -> Dict[str, Any]:
+    async def create(self, category: str, user_id: Optional[str] = None) -> Dict[str, Any]:
         now = datetime.utcnow()
         session_id = generate_session_id()
         doc = {
             "session_id": session_id,
+            "user_id": user_id,           # 新增：用户ID，用于多用户隔离
             "category": category,
             "task_ids": [],
+            "context": {},                # 新增：会话上下文，用于对话历史共享
             "created_at": now,
             "updated_at": now,
         }
@@ -40,12 +42,38 @@ class SessionService:
         )
         return result.modified_count > 0
 
+    async def update_context(self, session_id: str, context: Dict[str, Any]) -> bool:
+        """更新会话上下文（用于对话历史共享）"""
+        result = await self.collection.update_one(
+            {"session_id": session_id},
+            {"$set": {"context": context, "updated_at": datetime.utcnow()}}
+        )
+        return result.modified_count > 0
+
+    async def append_context(self, session_id: str, key: str, value: Any) -> bool:
+        """向会话上下文中追加数据"""
+        result = await self.collection.update_one(
+            {"session_id": session_id},
+            {"$set": {f"context.{key}": value, "updated_at": datetime.utcnow()}}
+        )
+        return result.modified_count > 0
+
+    async def list_by_user(self, user_id: str) -> List[Dict[str, Any]]:
+        """按用户ID查询会话列表"""
+        cursor = self.collection.find({"user_id": user_id}).sort("created_at", -1)
+        docs = []
+        async for doc in cursor:
+            docs.append(self._to_response(doc))
+        return docs
+
     def _to_response(self, doc: Dict[str, Any]) -> Dict[str, Any]:
         return {
             "id": str(doc["_id"]),
             "session_id": doc["session_id"],
+            "user_id": doc.get("user_id"),
             "category": doc["category"],
             "task_ids": doc.get("task_ids", []),
+            "context": doc.get("context", {}),
             "created_at": doc["created_at"],
             "updated_at": doc["updated_at"],
         }

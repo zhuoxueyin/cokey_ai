@@ -24,4 +24,5 @@ if __name__ == "__main__":
         port=8000,
         log_level="info",
         reload=False,
+        timeout_keep_alive=1800,  # 保持连接超时（秒）- 支持视频生成的长轮询（30分钟）
     )

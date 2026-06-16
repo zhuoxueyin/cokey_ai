@@ -5,11 +5,19 @@ from datetime import datetime
 
 from app.core.database import get_collection
 from app.core.config import settings
-from app.core.security import encrypt_string, decrypt_string, mask_string
 from app.core.logging_config import get_logger
 from bson import ObjectId
 
 logger = get_logger()
+
+
+def _mask_string(value: str, keep_start: int = 4, keep_end: int = 4) -> str:
+    """对敏感字符串做脱敏处理：保留前后字符，中间用 * 代替"""
+    if not value or not isinstance(value, str):
+        return value or ""
+    if len(value) <= keep_start + keep_end:
+        return "*" * len(value)
+    return value[:keep_start] + "*" * (len(value) - keep_start - keep_end) + value[-keep_end:]
 
 
 class ChannelService:
@@ -23,7 +31,13 @@ class ChannelService:
             "channel_name": data["channel_name"],
             "channel_type": data["channel_type"],
             "base_url": data["base_url"],
-            "auth_config": self._encrypt_auth(data.get("auth_config", {})),
+            "auth_config": data.get("auth_config", {}),
+            "api_config": data.get("api_config", {
+                "text_path": "/chat/completions",
+                "image_path": "/images/generations",
+                "video_path": "/videos/generations",
+                "text_stream": True,
+            }),
             "retry_config": data.get("retry_config", {"timeout": 30, "max_retries": 3, "retry_delay": 2}),
             "rate_limit_config": data.get("rate_limit_config", {"requests_per_minute": 60}),
             "status": data.get("status", "active"),
@@ -42,8 +56,11 @@ class ChannelService:
         return self._to_response(doc) if doc else None
 
     async def get_by_code(self, channel_code: str) -> Optional[Dict[str, Any]]:
+        """给内部网关调用：返回完整的明文 auth_config"""
         doc = await self.collection.find_one({"channel_code": channel_code})
-        return self._to_response_with_plain(doc) if doc else None
+        if not doc:
+            return None
+        return self._to_internal_response(doc)
 
     async def list(self, page: int = 1, page_size: int = 20, status: Optional[str] = None) -> Tuple[List[Dict[str, Any]], int]:
         query = {}
@@ -60,22 +77,19 @@ class ChannelService:
         if not ObjectId.is_valid(channel_id):
             return None
         update_data = {}
-        if "channel_name" in data:
-            update_data["channel_name"] = data["channel_name"]
-        if "channel_type" in data:
-            update_data["channel_type"] = data["channel_type"]
-        if "base_url" in data:
-            update_data["base_url"] = data["base_url"]
+        for key in ["channel_name", "channel_type", "base_url", "description"]:
+            if key in data:
+                update_data[key] = data[key]
         if "auth_config" in data:
-            update_data["auth_config"] = self._encrypt_auth(data["auth_config"])
+            update_data["auth_config"] = data["auth_config"]
+        if "api_config" in data:
+            update_data["api_config"] = data["api_config"]
         if "retry_config" in data:
             update_data["retry_config"] = data["retry_config"]
         if "rate_limit_config" in data:
             update_data["rate_limit_config"] = data["rate_limit_config"]
         if "status" in data:
             update_data["status"] = data["status"]
-        if "description" in data:
-            update_data["description"] = data["description"]
         update_data["updated_at"] = datetime.utcnow()
 
         result = await self.collection.update_one({"_id": ObjectId(channel_id)}, {"$set": update_data})
@@ -98,25 +112,12 @@ class ChannelService:
         )
         return result.modified_count > 0
 
-    def _encrypt_auth(self, auth_config: Dict[str, Any]) -> Dict[str, Any]:
-        encrypted = {}
-        for key, value in auth_config.items():
-            if value and isinstance(value, str):
-                encrypted[key] = encrypt_string(value, settings.encryption_key)
-            else:
-                encrypted[key] = value
-        return encrypted
-
-    def _decrypt_auth(self, auth_config: Dict[str, Any]) -> Dict[str, Any]:
-        decrypted = {}
-        for key, value in auth_config.items():
-            if value and isinstance(value, str):
-                decrypted[key] = decrypt_string(value, settings.encryption_key)
-            else:
-                decrypted[key] = value
-        return decrypted
+    def _mask_auth(self, auth_config: Dict[str, Any]) -> Dict[str, Any]:
+        """给管理后台返回：直接返回明文（不脱敏）"""
+        return auth_config or {}
 
     def _to_response(self, doc: Dict[str, Any]) -> Dict[str, Any]:
+        """对外返回（管理后台列表/详情）：auth_config 做脱敏"""
         return {
             "id": str(doc["_id"]),
             "channel_code": doc["channel_code"],
@@ -124,6 +125,12 @@ class ChannelService:
             "channel_type": doc["channel_type"],
             "base_url": doc["base_url"],
             "auth_config": self._mask_auth(doc.get("auth_config", {})),
+            "api_config": doc.get("api_config", {
+                "text_path": "/chat/completions",
+                "image_path": "/images/generations",
+                "video_path": "/videos/generations",
+                "text_stream": True,
+            }),
             "retry_config": doc.get("retry_config", {}),
             "rate_limit_config": doc.get("rate_limit_config", {}),
             "status": doc["status"],
@@ -132,14 +139,21 @@ class ChannelService:
             "updated_at": doc["updated_at"],
         }
 
-    def _to_response_with_plain(self, doc: Dict[str, Any]) -> Dict[str, Any]:
+    def _to_internal_response(self, doc: Dict[str, Any]) -> Dict[str, Any]:
+        """给内部网关调用：auth_config 保持明文"""
         return {
             "id": str(doc["_id"]),
             "channel_code": doc["channel_code"],
             "channel_name": doc["channel_name"],
             "channel_type": doc["channel_type"],
             "base_url": doc["base_url"],
-            "auth_config": self._decrypt_auth(doc.get("auth_config", {})),
+            "auth_config": doc.get("auth_config", {}),
+            "api_config": doc.get("api_config", {
+                "text_path": "/chat/completions",
+                "image_path": "/images/generations",
+                "video_path": "/videos/generations",
+                "text_stream": True,
+            }),
             "retry_config": doc.get("retry_config", {}),
             "rate_limit_config": doc.get("rate_limit_config", {}),
             "status": doc["status"],
@@ -147,9 +161,6 @@ class ChannelService:
             "created_at": doc["created_at"],
             "updated_at": doc["updated_at"],
         }
-
-    def _mask_auth(self, auth_config: Dict[str, Any]) -> Dict[str, Any]:
-        return {k: mask_string(decrypt_string(str(v), settings.encryption_key)) if v else "" for k, v in auth_config.items()}
 
 
 _channel_service = None

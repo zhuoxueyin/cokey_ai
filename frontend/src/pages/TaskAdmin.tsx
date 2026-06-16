@@ -16,6 +16,7 @@ import {
   Progress,
   Divider,
   Alert,
+  Popconfirm,
 } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import {
@@ -28,10 +29,13 @@ import {
   FileTextOutlined,
   PictureOutlined,
   VideoCameraOutlined,
+  StopOutlined,
 } from '@ant-design/icons'
 import {
   listTasksAdmin,
   getTaskStatsAdmin,
+  cancelAllTasksAdmin,
+  cancelTaskAdmin,
 } from '@/api'
 import type { TaskItem, TaskStats } from '@/types'
 
@@ -48,6 +52,7 @@ const statusMap: Record<string, { label: string; color: string; icon: React.Reac
   processing: { label: '处理中', color: 'blue', icon: <SyncOutlined spin /> },
   success: { label: '成功', color: 'green', icon: <CheckCircleOutlined /> },
   failed: { label: '失败', color: 'red', icon: <CloseCircleOutlined /> },
+  queued: { label: '排队中', color: 'orange', icon: <ClockCircleOutlined /> },
 }
 
 export default function TaskAdmin() {
@@ -85,6 +90,36 @@ export default function TaskAdmin() {
       setStats(res.data || null)
     } catch (e: any) {
       console.warn('统计加载失败', e)
+    }
+  }
+
+  const handleCancelAll = async () => {
+    try {
+      const res = await cancelAllTasksAdmin()
+      if (res.code === 'success' && res.data) {
+        message.success(`已停止 ${res.data.modified_count} 个进行中的任务`)
+        fetchData()
+        fetchStats()
+      } else {
+        message.error(res.message || '操作失败')
+      }
+    } catch (e: any) {
+      message.error(e.message || '操作失败')
+    }
+  }
+
+  const handleCancelTask = async (task_id: string) => {
+    try {
+      const res = await cancelTaskAdmin(task_id)
+      if (res.code === 'success') {
+        message.success('任务已停止')
+        fetchData()
+        fetchStats()
+      } else {
+        message.error(res.message || '操作失败')
+      }
+    } catch (e: any) {
+      message.error(e.message || '操作失败')
     }
   }
 
@@ -161,32 +196,46 @@ export default function TaskAdmin() {
     {
       title: '操作',
       key: 'actions',
-      width: 80,
+      width: 150,
       fixed: 'right',
       render: (_, r) => (
-        <Button size="small" icon={<EyeOutlined />} onClick={() => setViewItem(r)}>
-          详情
-        </Button>
+        <Space>
+          <Button size="small" icon={<EyeOutlined />} onClick={() => setViewItem(r)}>
+            详情
+          </Button>
+          {(r.status === 'processing' || r.status === 'pending') && (
+            <Popconfirm
+              title="确定要停止此任务吗？"
+              okText="确定"
+              cancelText="取消"
+              onConfirm={() => handleCancelTask(r.task_id)}
+            >
+              <Button size="small" danger icon={<StopOutlined />}>
+                停止
+              </Button>
+            </Popconfirm>
+          )}
+        </Space>
       ),
     },
   ]
 
-  const successRate = stats && stats.total > 0 ? Math.round((stats.success / stats.total) * 100) : 0
+  const successRate = stats ? Math.round(stats.success_rate || 0) : 0
   const avgDurationSec = stats ? (stats.avg_duration_ms / 1000).toFixed(2) : '0'
 
   return (
-    <div>
+    <div style={{ padding: 24, height: '100%', overflowY: 'auto', boxSizing: 'border-box' }}>
       <Row gutter={16} style={{ marginBottom: 16 }}>
         <Col span={6}>
           <Card>
-            <Statistic title="总任务数" value={stats?.total || 0} />
+            <Statistic title="总任务数" value={stats?.total_tasks || 0} />
           </Card>
         </Col>
         <Col span={6}>
           <Card>
             <Statistic
               title="成功任务"
-              value={stats?.success || 0}
+              value={stats?.success_count || 0}
               valueStyle={{ color: '#3f8600' }}
               prefix={<CheckCircleOutlined />}
             />
@@ -196,7 +245,7 @@ export default function TaskAdmin() {
           <Card>
             <Statistic
               title="失败任务"
-              value={stats?.failed || 0}
+              value={stats?.failed_count || 0}
               valueStyle={{ color: '#cf1322' }}
               prefix={<CloseCircleOutlined />}
             />
@@ -206,7 +255,7 @@ export default function TaskAdmin() {
           <Card>
             <Statistic
               title="处理中"
-              value={stats?.processing || 0}
+              value={(stats?.processing_count || 0) + (stats?.pending_count || 0)}
               valueStyle={{ color: '#1890ff' }}
               prefix={<SyncOutlined spin />}
             />
@@ -247,6 +296,17 @@ export default function TaskAdmin() {
               <Option value="success">成功</Option>
               <Option value="failed">失败</Option>
             </Select>
+            <Popconfirm
+              title="确定要停止全部进行中的任务吗？"
+              description="所有等待中和处理中的任务将被标记为失败"
+              okText="确定"
+              cancelText="取消"
+              onConfirm={handleCancelAll}
+            >
+              <Button danger icon={<StopOutlined />}>
+                停止全部进行中
+              </Button>
+            </Popconfirm>
             <Button icon={<ReloadOutlined />} onClick={() => { fetchData(); fetchStats() }}>
               刷新
             </Button>
@@ -276,7 +336,7 @@ export default function TaskAdmin() {
         open={!!viewItem}
         onCancel={() => setViewItem(null)}
         footer={[<Button key="close" onClick={() => setViewItem(null)}>关闭</Button>]}
-        width={760}
+        width={900}
       >
         {viewItem && (
           <div>
@@ -291,15 +351,27 @@ export default function TaskAdmin() {
               <Descriptions.Item label="状态">
                 <Tag color={statusMap[viewItem.status]?.color}>{statusMap[viewItem.status]?.label}</Tag>
               </Descriptions.Item>
+              <Descriptions.Item label="渠道">
+                {viewItem.channel_code ? <Tag color="orange">{viewItem.channel_code}</Tag> : '-'}
+              </Descriptions.Item>
+              <Descriptions.Item label="Trace ID">
+                {viewItem.trace_id ? <code style={{ fontSize: 11 }}>{viewItem.trace_id}</code> : '-'}
+              </Descriptions.Item>
               <Descriptions.Item label="耗时">
                 {viewItem.duration_ms ? `${(viewItem.duration_ms / 1000).toFixed(2)}s` : '-'}
               </Descriptions.Item>
               <Descriptions.Item label="创建时间">
                 {viewItem.created_at?.replace('T', ' ').slice(0, 19)}
               </Descriptions.Item>
+              <Descriptions.Item label="更新时间">
+                {viewItem.updated_at?.replace('T', ' ').slice(0, 19) || '-'}
+              </Descriptions.Item>
+              <Descriptions.Item label="会话ID">
+                {viewItem.session_id || '-'}
+              </Descriptions.Item>
             </Descriptions>
 
-            <Divider style={{ margin: '12px 0' }}>请求参数</Divider>
+            <Divider style={{ margin: '12px 0' }}>前端请求参数</Divider>
             <Alert
               message={viewItem.params_summary || '-'}
               type="info"
@@ -309,6 +381,43 @@ export default function TaskAdmin() {
             <div style={{ background: '#fafafa', padding: 12, borderRadius: 6, marginBottom: 12, maxHeight: 200, overflowY: 'auto' }}>
               <pre style={{ margin: 0, fontSize: 12 }}>{JSON.stringify(viewItem.params, null, 2)}</pre>
             </div>
+
+            {/* 渠道请求参数 */}
+            {viewItem.channel_request && (
+              <>
+                <Divider style={{ margin: '12px 0' }}>渠道请求参数</Divider>
+                <div style={{ background: '#fff7e6', padding: 12, borderRadius: 6, marginBottom: 12, maxHeight: 200, overflowY: 'auto' }}>
+                  <pre style={{ margin: 0, fontSize: 12 }}>{JSON.stringify(viewItem.channel_request, null, 2)}</pre>
+                </div>
+              </>
+            )}
+
+            {/* 渠道响应（视频类型包含创建和查询两次响应） */}
+            {viewItem.channel_response && Object.keys(viewItem.channel_response).length > 0 && (
+              <>
+                <Divider style={{ margin: '12px 0' }}>渠道响应</Divider>
+                {viewItem.category === 'video' && viewItem.channel_response.create && (
+                  <div style={{ marginBottom: 12 }}>
+                    <div style={{ fontSize: 13, fontWeight: 500, color: '#1890ff', marginBottom: 8 }}>
+                      ① 创建任务响应
+                    </div>
+                    <div style={{ background: '#e6f7ff', padding: 12, borderRadius: 6, maxHeight: 150, overflowY: 'auto' }}>
+                      <pre style={{ margin: 0, fontSize: 12 }}>{JSON.stringify(viewItem.channel_response.create, null, 2)}</pre>
+                    </div>
+                  </div>
+                )}
+                {viewItem.channel_response.query && (
+                  <div style={{ marginBottom: 12 }}>
+                    <div style={{ fontSize: 13, fontWeight: 500, color: '#52c41a', marginBottom: 8 }}>
+                      {viewItem.category === 'video' ? '② 查询任务响应' : '响应结果'}
+                    </div>
+                    <div style={{ background: '#f6ffed', padding: 12, borderRadius: 6, maxHeight: 200, overflowY: 'auto' }}>
+                      <pre style={{ margin: 0, fontSize: 12 }}>{JSON.stringify(viewItem.channel_response.query, null, 2)}</pre>
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
 
             {viewItem.error_message && (
               <>

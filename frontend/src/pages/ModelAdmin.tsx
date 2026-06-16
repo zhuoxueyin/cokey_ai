@@ -64,6 +64,11 @@ interface ModelFormData {
   status: 'online' | 'offline' | 'maintenance'
   sort_order: number
   is_default: boolean
+  supported_inputs?: {
+    image?: boolean
+    video?: boolean
+    audio?: boolean
+  }
 }
 
 export default function ModelAdmin() {
@@ -120,6 +125,11 @@ export default function ModelAdmin() {
       status: 'online',
       sort_order: 0,
       is_default: false,
+      supported_inputs: {
+        image: false,
+        video: false,
+        audio: false,
+      },
     })
     setBindings([])
     await fetchChannels()
@@ -128,16 +138,18 @@ export default function ModelAdmin() {
 
   const handleEdit = async (record: ModelItem) => {
     setEditingItem(record)
+    const inputs = record.supported_inputs && Object.keys(record.supported_inputs).length > 0
+      ? record.supported_inputs
+      : { image: false, video: false, audio: false }
     form.setFieldsValue({
       model_code: record.model_code,
       model_name: record.model_name,
       category: record.category,
       description: record.description,
-      cover: record.cover,
-      tags: record.tags?.join(', '),
       status: record.status || 'online',
       sort_order: record.sort_order || 0,
       is_default: record.is_default || false,
+      supported_inputs: inputs,
     })
     setBindings(record.channel_bindings ? [...record.channel_bindings] : [])
     await fetchChannels()
@@ -185,9 +197,6 @@ export default function ModelAdmin() {
   const handleSubmit = async () => {
     try {
       const values = await form.validateFields()
-      const tagsArr = values.tags
-        ? values.tags.split(',').map((t: string) => t.trim()).filter(Boolean)
-        : []
 
       const cleanedBindings = bindings
         .filter((b) => b.channel_code && b.channel_model_id && b.channel_model_id.trim())
@@ -203,11 +212,14 @@ export default function ModelAdmin() {
         model_name: values.model_name,
         category: values.category,
         description: values.description,
-        cover: values.cover,
-        tags: tagsArr,
         status: values.status,
         sort_order: values.sort_order,
         is_default: values.is_default,
+        supported_inputs: {
+          image: !!values.supported_inputs?.image,
+          video: !!values.supported_inputs?.video,
+          audio: !!values.supported_inputs?.audio,
+        },
         param_schema: { fields: [] },
         channel_bindings: cleanedBindings,
       }
@@ -242,51 +254,43 @@ export default function ModelAdmin() {
       title: '模型名称',
       dataIndex: 'model_name',
       key: 'model_name',
+      width: 200,
       render: (v, r) => (
-        <Space>
+        <div>
           <strong>{v}</strong>
-          {r.is_default && <Tag color="gold">默认</Tag>}
-        </Space>
+          {r.is_default && <Tag color="gold" style={{ marginLeft: 8, fontSize: 10 }}>默认</Tag>}
+        </div>
       ),
     },
     {
       title: '编码',
       dataIndex: 'model_code',
       key: 'model_code',
-      render: (v) => <code style={{ background: '#f5f5f5', padding: '2px 6px', borderRadius: 4 }}>{v}</code>,
+      width: 180,
+      render: (v) => <code style={{ background: '#f5f5f5', padding: '2px 6px', borderRadius: 4, fontSize: 12 }}>{v}</code>,
     },
     {
       title: '分类',
       dataIndex: 'category',
       key: 'category',
-      width: 100,
+      width: 80,
       render: (v) => {
         const c = categoryMap[v] || { label: v, color: 'default' }
-        return <Tag color={c.color}>{c.label}</Tag>
+        return <Tag color={c.color} style={{ fontSize: 12 }}>{c.label}</Tag>
       },
-    },
-    {
-      title: '标签',
-      dataIndex: 'tags',
-      key: 'tags',
-      render: (v: string[]) => (
-        <Space size={4} wrap>
-          {v?.map((t: string) => <Tag key={t}>{t}</Tag>)}
-        </Space>
-      ),
     },
     {
       title: '状态',
       dataIndex: 'status',
       key: 'status',
-      width: 140,
+      width: 120,
       render: (v, r) => {
         const s = statusMap[v || 'online'] || { label: v, color: 'default' }
         return (
           <Select
             size="small"
             value={v || 'online'}
-            style={{ width: 100 }}
+            style={{ width: 90 }}
             onChange={(val) => handleStatusChange(r, val)}
           >
             <Option value="online"><Tag color="green">在线</Tag></Option>
@@ -300,7 +304,7 @@ export default function ModelAdmin() {
       title: '排序',
       dataIndex: 'sort_order',
       key: 'sort_order',
-      width: 80,
+      width: 60,
     },
     {
       title: '渠道绑定',
@@ -347,7 +351,7 @@ export default function ModelAdmin() {
   ]
 
   return (
-    <div>
+    <div style={{ padding: 24, height: '100%', overflowY: 'auto', boxSizing: 'border-box' }}>
       <Card
         title="模型管理"
         extra={
@@ -386,10 +390,16 @@ export default function ModelAdmin() {
           loading={loading}
           dataSource={data}
           columns={columns}
+          size="small"
+          style={{
+            border: 'none',
+            boxShadow: 'none',
+          }}
           pagination={{
             current: page,
             pageSize,
             total,
+            size: 'small',
             onChange: (p, ps) => { setPage(p); setPageSize(ps) },
             showSizeChanger: true,
             showQuickJumper: true,
@@ -450,14 +460,25 @@ export default function ModelAdmin() {
           <Form.Item name="description" label="描述">
             <TextArea rows={2} placeholder="模型描述..." />
           </Form.Item>
-          <Form.Item name="tags" label="标签（逗号分隔）">
-            <Input placeholder="如: 通用,对话,高质量" />
-          </Form.Item>
-          <Form.Item name="cover" label="封面图 URL">
-            <Input placeholder="https://..." />
-          </Form.Item>
           <Form.Item name="is_default" label="设为该分类默认模型" valuePropName="checked">
             <Switch />
+          </Form.Item>
+          <Divider orientation="left" plain>支持上传素材类型</Divider>
+          <Form.Item label="可选输入类型">
+            <Space wrap>
+              <Form.Item name={['supported_inputs', 'image']} valuePropName="checked" noStyle>
+                <Switch checkedChildren="图片" unCheckedChildren="图片" />
+              </Form.Item>
+              <Form.Item name={['supported_inputs', 'video']} valuePropName="checked" noStyle>
+                <Switch checkedChildren="视频" unCheckedChildren="视频" />
+              </Form.Item>
+              <Form.Item name={['supported_inputs', 'audio']} valuePropName="checked" noStyle>
+                <Switch checkedChildren="音频" unCheckedChildren="音频" />
+              </Form.Item>
+            </Space>
+            <span style={{ color: '#888', fontSize: 12, marginLeft: 8 }}>
+              勾选后，该模型在生成时将显示对应的上传按钮（仅视频模型支持多模态输入）
+            </span>
           </Form.Item>
           <Divider orientation="left" plain>渠道绑定</Divider>
           <div style={{ marginBottom: 12 }}>
@@ -573,6 +594,20 @@ export default function ModelAdmin() {
                 <div style={{ color: '#888', fontSize: 12, marginBottom: 4 }}>标签</div>
                 <Space wrap>
                   {viewItem.tags.map((t) => <Tag key={t}>{t}</Tag>)}
+                </Space>
+              </div>
+            )}
+
+            {viewItem.supported_inputs && (
+              <div style={{ marginBottom: 16 }}>
+                <div style={{ color: '#888', fontSize: 12, marginBottom: 4 }}>支持上传类型</div>
+                <Space wrap>
+                  {viewItem.supported_inputs.image && <Tag color="green">图片</Tag>}
+                  {viewItem.supported_inputs.video && <Tag color="purple">视频</Tag>}
+                  {viewItem.supported_inputs.audio && <Tag color="blue">音频</Tag>}
+                  {(!viewItem.supported_inputs.image && !viewItem.supported_inputs.video && !viewItem.supported_inputs.audio) && (
+                    <Tag color="default">仅文本</Tag>
+                  )}
                 </Space>
               </div>
             )}

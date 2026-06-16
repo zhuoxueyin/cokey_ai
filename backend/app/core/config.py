@@ -21,11 +21,17 @@ class Settings(BaseSettings):
     encryption_key: str = "your-encryption-key-32bytes-min"
 
     github_token: str = ""
-    github_username: str = ""
-    github_repo: str = ""
+    github_repo: str = "zhuoxueyin/cokey_ai"
     github_branch: str = "main"
+    github_cdn_prefix: str = "https://cdn.jsdmirror.com/gh"
 
-    cors_origins: str = "http://localhost:3000,http://localhost:5173"
+    weelink_api_key: str = ""
+
+    # JWT配置
+    jwt_secret_key: str = "your-jwt-secret-key-must-be-at-least-32-characters-long-for-hs256"
+    jwt_algorithm: str = "HS256"
+
+    cors_origins: str = "http://localhost:3000,http://localhost:3001,http://localhost:5173"
 
     rate_limit_requests_per_minute: int = 60
     rate_limit_window_seconds: int = 60

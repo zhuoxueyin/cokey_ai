@@ -125,6 +125,14 @@ class ModelGateway:
             logger.info(f"[{trace_id}] params_raw={params}")
         logger.info(f"[{trace_id}] ════════════════════════════════")
 
+        # 记录渠道请求参数
+        channel_request = {
+            "category": category,
+            "channel_model_id": channel_model_id,
+            "params": params,
+            "timestamp": datetime.now().isoformat()
+        }
+        
         result = await adapter.execute(
             category=category,
             model_config=model_config,
@@ -132,6 +140,37 @@ class ModelGateway:
             channel_model_id=channel_model_id,
             api_key=api_key
         )
+        
+        # 记录渠道响应（视频类型包含创建和查询两次响应）
+        channel_response = {}
+        if hasattr(adapter, '_create_response') and adapter._create_response:
+            # 视频异步任务：记录创建响应
+            channel_response["create"] = adapter._create_response
+            logger.info(f"[{trace_id}] 记录创建响应: task_id={adapter._create_response.get('id') or adapter._create_response.get('task_id')}")
+        if result.get('data'):
+            # 记录查询响应（最终结果）
+            channel_response["query"] = result['data']
+            logger.info(f"[{trace_id}] 记录查询响应: status={result['data'].get('status')}")
+        
+        # 如果是视频异步任务，记录轮询详情
+        if hasattr(adapter, '_poll_attempts') and adapter._poll_attempts:
+            channel_response["poll_details"] = adapter._poll_attempts
+
+        # #region debug-image-error
+        logger.info(f"[{trace_id}] ═══════ 适配器执行结果 ═══════")
+        logger.info(f"[{trace_id}] result_type={type(result)}")
+        logger.info(f"[{trace_id}] result_keys={list(result.keys()) if isinstance(result, dict) else 'NOT_DICT'}")
+        if isinstance(result, dict):
+            logger.info(f"[{trace_id}] success={result.get('success')}")
+            logger.info(f"[{trace_id}] error_code={result.get('error_code')}")
+            logger.info(f"[{trace_id}] error_message={result.get('error_message')}")
+            if 'data' in result:
+                try:
+                    logger.info(f"[{trace_id}] data={json.dumps(result['data'], ensure_ascii=False, indent=2)[:500]}")
+                except Exception:
+                    logger.info(f"[{trace_id}] data={str(result['data'])[:500]}")
+        logger.info(f"[{trace_id}] ════════════════════════════════")
+        # #endregion debug-image-error
 
         if not result.get("success"):
             error_code = result.get("error_code", "internal_error")
@@ -139,6 +178,16 @@ class ModelGateway:
             fallback_result = await self._try_fallback_channels(model_config, category, params, trace_id, exclude_channel=channel["channel_code"])
             if fallback_result and fallback_result.get("success"):
                 return fallback_result
+
+        # 添加渠道请求和响应信息到结果中
+        result["channel_request"] = channel_request
+        result["channel_response"] = channel_response
+        
+        # 提取外部任务ID（用于服务器重启后恢复状态）
+        external_task_id = None
+        if hasattr(adapter, '_create_response') and adapter._create_response:
+            external_task_id = adapter._create_response.get('id') or adapter._create_response.get('task_id')
+        result["external_task_id"] = external_task_id
 
         return result
 
