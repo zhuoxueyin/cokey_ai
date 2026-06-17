@@ -185,6 +185,7 @@ export interface UserInfo {
   userId: string
   username: string
   nickname: string
+  avatar_url?: string
   status: number
 }
 
@@ -202,6 +203,10 @@ export const logout = (): Promise<ApiResponse<void>> => {
 
 export const getProfile = (): Promise<ApiResponse<UserInfo>> => {
   return request.get('/user/profile')
+}
+
+export const updateProfile = (data: { nickname?: string; avatar_url?: string }): Promise<ApiResponse<UserInfo>> => {
+  return request.put('/user/profile', data)
 }
 
 export const updatePassword = (old_password: string, new_password: string): Promise<ApiResponse<void>> => {

@@ -214,17 +214,37 @@ async def generate(data: TaskCreate):
                 for idx, img in enumerate(images):
                     try:
                         img_url = img.get("url") if isinstance(img, dict) else str(img)
-                        if img_url:
-                            await get_asset_service().create(
-                                file_name=f"generated_{task['task_id']}_{idx}.png",
-                                file_path="",
-                                url=img_url,
-                                cdn_urls=[img_url],
-                                file_size=0,
-                                content_type="image/png",
-                                category="image",
-                                source_type="generated",
-                            )
+                        if not img_url:
+                            continue
+                        from app.adapters.weelinking import _ensure_cdn_url
+                        from app.services.storage_service import get_storage_service
+
+                        cdn_url = await _ensure_cdn_url(img_url, task.get("trace_id", ""))
+                        file_path = ""
+                        cdn_urls = [cdn_url] if cdn_url else []
+                        if cdn_url and cdn_url != img_url:
+                            pass
+                        elif cdn_url:
+                            storage = get_storage_service()
+                            if storage.enabled and "/gh/" in cdn_url:
+                                try:
+                                    suffix = f"@{storage.branch}/"
+                                    pos = cdn_url.find(suffix)
+                                    if pos > 0:
+                                        file_path = cdn_url[pos + len(suffix):]
+                                        cdn_urls = storage.get_all_cdn_urls(file_path)
+                                except Exception:
+                                    pass
+                        await get_asset_service().create(
+                            file_name=f"generated_{task['task_id']}_{idx}.png",
+                            file_path=file_path,
+                            url=cdn_url or img_url,
+                            cdn_urls=cdn_urls or [cdn_url or img_url],
+                            file_size=0,
+                            content_type="image/png",
+                            category="image",
+                            source_type="generated",
+                        )
                     except Exception as _e:
                         logger.warning(f"记录生成图片到 assets 失败: {_e}")
             elif res_type == "video":

@@ -183,33 +183,33 @@ export default function ChatArea({ tasks: tasksProp }: { tasks?: TaskItem[] }) {
     }[task.category]
 
     return (
-      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 16 }}>
-        <div style={{ maxWidth: '75%' }}>
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
+        <div style={{ maxWidth: '78%' }}>
           <Card
             style={{
               background: '#fff',
-              border: '1px solid #e8e8e8',
-              borderRadius: 14,
-              boxShadow: '0 1px 2px rgba(0,0,0,0.03)',
+              border: '1px solid #ebebef',
+              borderRadius: 12,
+              boxShadow: 'none',
             }}
-            styles={{ body: { padding: 14 } }}
+            styles={{ body: { padding: '10px 12px' } }}
           >
-            <div style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
-              <div style={{ color: '#1677ff', fontSize: 12 }}>{icon}</div>
-              <Tag color="blue" style={{ fontSize: 10, padding: '0 6px', height: 18, lineHeight: '16px' }}>
+            <div style={{ display: 'flex', gap: 4, marginBottom: 4 }}>
+              <div style={{ color: '#7c5cfc', fontSize: 11 }}>{icon}</div>
+              <Tag color="purple" style={{ fontSize: 10, padding: '0 5px', height: 16, lineHeight: '14px', margin: 0 }}>
                 {task.model_code}
               </Tag>
-              <Tag color="green" style={{ fontSize: 10, padding: '0 6px', height: 18, lineHeight: '16px' }}>
+              <Tag style={{ fontSize: 10, padding: '0 5px', height: 16, lineHeight: '14px', margin: 0 }}>
                 {task.category === 'text' ? '文本' : task.category === 'image' ? '图片' : '视频'}
               </Tag>
             </div>
             {task.params?.prompt && (
-              <div style={{ whiteSpace: 'pre-wrap', fontSize: 13, lineHeight: 1.6, color: '#333' }}>
+              <div style={{ whiteSpace: 'pre-wrap', fontSize: 13, lineHeight: 1.5, color: '#333' }}>
                 {task.params.prompt}
               </div>
             )}
             {task.params?.images && task.params.images.length > 0 && renderParamImages(task.params.images)}
-            <div style={{ marginTop: 6, fontSize: 10, color: '#999', textAlign: 'right' }}>
+            <div style={{ marginTop: 4, fontSize: 10, color: '#aaa', textAlign: 'right' }}>
               {new Date(task.created_at).toLocaleString('zh-CN')}
             </div>
           </Card>
@@ -230,43 +230,44 @@ export default function ChatArea({ tasks: tasksProp }: { tasks?: TaskItem[] }) {
     const text = result.text || ''
 
     return (
-      <div style={{ display: 'flex', justifyContent: 'flex-start', marginBottom: 16 }}>
-        <div style={{ maxWidth: '85%', width: '100%' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+      <div style={{ display: 'flex', justifyContent: 'flex-start', marginBottom: 12 }}>
+        <div style={{ maxWidth: '95%', width: '100%' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 4 }}>
             <div
               style={{
-                width: 24,
-                height: 24,
+                width: 22,
+                height: 22,
                 borderRadius: '50%',
-                background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                background: 'linear-gradient(135deg, #7c5cfc 0%, #a78bfa 100%)',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
                 color: '#fff',
-                fontSize: 12,
+                fontSize: 11,
               }}
             >
               <RobotOutlined />
             </div>
-            <span style={{ fontSize: 12, fontWeight: 500 }}>AI 助手</span>
+            <span style={{ fontSize: 11, fontWeight: 500, color: '#666' }}>AI</span>
             {task.duration_ms && (
-              <span style={{ fontSize: 10, color: '#999' }}>
+              <span style={{ fontSize: 10, color: '#bbb' }}>
                 <ClockCircleOutlined /> {(task.duration_ms / 1000).toFixed(1)}s
               </span>
             )}
           </div>
 
-          <div style={{ paddingLeft: 30 }}>
+          <div style={{ paddingLeft: 28 }}>
             <Card
               style={{
-                background: '#fafbff',
-                border: '1px solid #e8e8f0',
-                borderRadius: 12,
+                background: '#faf9ff',
+                border: '1px solid #ebebef',
+                borderRadius: 10,
+                boxShadow: 'none',
               }}
-              styles={{ body: { padding: 16 } }}
+              styles={{ body: { padding: '10px 12px' } }}
             >
               {isProcessing && (
-                <div style={{ padding: '16px 0' }}>
+                <div style={{ padding: '8px 0' }}>
                   <Space>
                     <span style={{ color: '#666' }}>
                       <ThunderboltOutlined /> 生成中，请稍候...
@@ -403,15 +404,13 @@ export default function ChatArea({ tasks: tasksProp }: { tasks?: TaskItem[] }) {
 
   if (tasksToRender.length === 0) {
     return (
-      <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 48 }}>
+      <div className="workspace-stream-content" style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 200, paddingBottom: 80 }}>
         <Empty
+          image={Empty.PRESENTED_IMAGE_SIMPLE}
           description={
-            <div style={{ textAlign: 'center' }}>
-              <div style={{ fontSize: 18, marginBottom: 8, color: '#333', fontWeight: 500 }}>
-                {activeCategory === 'image' ? '开始你的AI图片创作' : activeCategory === 'video' ? '开始你的AI视频创作' : '开始你的AI文本创作'}
-              </div>
-              <div style={{ fontSize: 13, color: '#999' }}>在下方输入描述，或上传图片，点击"立即生成"开始创作</div>
-            </div>
+            <span style={{ fontSize: 13, color: '#aaa' }}>
+              在下方输入描述开始创作
+            </span>
           }
         />
       </div>
@@ -419,7 +418,7 @@ export default function ChatArea({ tasks: tasksProp }: { tasks?: TaskItem[] }) {
   }
 
   return (
-    <div style={{ padding: '24px 48px 0' }}>
+    <div className="workspace-stream-content">
       {tasksToRender.map((task) => (
         <div key={task.task_id}>
           {renderUserMessage(task)}

@@ -18,9 +18,42 @@ async def get_profile(auth_info: dict = Depends(AuthMiddleware)):
         
         # 移除敏感字段
         user.pop("password", None)
-        return success(user)
+        return success({
+            "userId": user["_id"],
+            "username": user["username"],
+            "nickname": user.get("nickname", user["username"]),
+            "avatar_url": user.get("avatar_url", ""),
+            "status": user.get("status", 1),
+        })
     except Exception as e:
         return error("internal_error", str(e))
+
+
+@router.put("/profile")
+async def update_profile(body: dict = Body(...), auth_info: dict = Depends(AuthMiddleware)):
+    """更新当前用户资料"""
+    nickname = body.get("nickname")
+    avatar_url = body.get("avatar_url")
+
+    if nickname is None and avatar_url is None:
+        return error("validation_error", "请提供要更新的字段")
+
+    try:
+        user_service = get_user_service()
+        user = await user_service.update_profile(
+            auth_info["user_id"],
+            nickname=nickname,
+            avatar_url=avatar_url,
+        )
+        return success({
+            "userId": user["_id"],
+            "username": user["username"],
+            "nickname": user.get("nickname", user["username"]),
+            "avatar_url": user.get("avatar_url", ""),
+            "status": user.get("status", 1),
+        }, message="资料更新成功")
+    except ValueError as e:
+        return error("validation_error", str(e))
 
 
 @router.put("/pwd")

@@ -32,9 +32,36 @@ export function rejectNonCdnUrl(url: string | null | undefined, label = '图片'
   return url
 }
 
+/** 与 backend 默认配置一致，用于从 file_path 还原 CDN */
+const DEFAULT_GH_REPO = 'zhuoxueyin/cokey_ai'
+const DEFAULT_GH_BRANCH = 'main'
+
+export function buildCdnUrlsFromFilePath(filePath: string, repo = DEFAULT_GH_REPO, branch = DEFAULT_GH_BRANCH): string[] {
+  const path = `${repo}@${branch}/${filePath}`
+  return [
+    `https://cdn.jsdmirror.com/gh/${path}`,
+    `https://fastly.jsdelivr.net/gh/${path}`,
+    `https://cdn.jsdelivr.net/gh/${path}`,
+    `https://ghproxy.net/https://raw.githubusercontent.com/${repo}/${branch}/${filePath}`,
+    `https://raw.githubusercontent.com/${repo}/${branch}/${filePath}`,
+  ]
+}
+
 /** 从上传/资源响应中选取主 CDN URL */
-export function pickCdnUrl(data: { url?: string; cdn_urls?: string[] }, label = '图片'): string {
+export function pickCdnUrl(
+  data: { url?: string; cdn_urls?: string[]; file_path?: string; resolved_cdn_url?: string },
+  label = '图片',
+): string {
+  if (data.resolved_cdn_url && isCdnUrl(data.resolved_cdn_url)) {
+    return data.resolved_cdn_url
+  }
   const fromList = data.cdn_urls?.find(isCdnUrl)
+  if (fromList) return fromList
+  if (data.url && isCdnUrl(data.url)) return data.url
+  if (data.file_path) {
+    const built = buildCdnUrlsFromFilePath(data.file_path).find(isCdnUrl)
+    if (built) return built
+  }
   const candidate = fromList ?? data.url
   return rejectNonCdnUrl(candidate, label)
 }
@@ -72,7 +99,15 @@ export function extractCdnUrls(
 }
 
 /** 资源库条目是否可用于生图 */
-export function isAssetCdnReady(asset: { url?: string; cdn_urls?: string[] }): boolean {
+export function isAssetCdnReady(asset: {
+  url?: string
+  cdn_urls?: string[]
+  file_path?: string
+  resolved_cdn_url?: string
+  cdn_ready?: boolean
+}): boolean {
+  if (asset.cdn_ready === true && asset.resolved_cdn_url) return true
+  if (asset.cdn_ready === false) return false
   try {
     pickCdnUrl(asset)
     return true

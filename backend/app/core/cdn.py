@@ -60,3 +60,23 @@ def validate_reference_images(params: dict, field_names: tuple = ("images", "ima
         for i, item in enumerate(items):
             url = extract_url_from_image_item(item)
             require_cdn_url(url, label=f"参考图[{i + 1}]")
+
+
+def resolve_asset_cdn_url(
+    url: str = "",
+    cdn_urls: Optional[List[str]] = None,
+    file_path: str = "",
+) -> Optional[str]:
+    """从资源记录解析可用于生图的 CDN URL（不抛异常）"""
+    for u in cdn_urls or []:
+        if is_cdn_url(u):
+            return u
+    if is_cdn_url(url):
+        return url
+    if file_path:
+        try:
+            from app.services.storage_service import get_storage_service
+            return get_storage_service().get_cdn_url(file_path)
+        except Exception:
+            pass
+    return None

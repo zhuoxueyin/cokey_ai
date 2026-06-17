@@ -50,6 +50,10 @@ export default function AssetPicker({ open, onClose, onSelect, multiple = true, 
   }, [open, page, pageSize, category])
 
   const toggleSelect = (item: AssetItem) => {
+    if (category === 'image' && !isAssetCdnReady(item)) {
+      message.warning('该图片无法用于生图（非 CDN 地址）')
+      return
+    }
     if (selectedIds.includes(item.id)) {
       setSelectedIds(selectedIds.filter(id => id !== item.id))
     } else {
@@ -69,12 +73,15 @@ export default function AssetPicker({ open, onClose, onSelect, multiple = true, 
       return
     }
     const selected = items.filter(it => selectedIds.includes(it.id))
-    const invalid = selected.filter((a) => !isAssetCdnReady(a))
-    if (invalid.length > 0) {
-      message.error('所选资源含非 CDN 地址，无法使用')
+    const valid = selected.filter((a) => category !== 'image' || isAssetCdnReady(a))
+    if (valid.length === 0) {
+      message.error('所选图片均无法用于生图，请选择已上传至 CDN 的图片')
       return
     }
-    onSelect(selected)
+    if (valid.length < selected.length) {
+      message.warning(`已忽略 ${selected.length - valid.length} 张不可用图片`)
+    }
+    onSelect(valid)
     setSelectedIds([])
     onClose()
   }
@@ -171,6 +178,7 @@ export default function AssetPicker({ open, onClose, onSelect, multiple = true, 
             >
               {items.map((item) => {
                 const isSelected = selectedIds.includes(item.id)
+                const cdnReady = category !== 'image' || isAssetCdnReady(item)
                 return (
                   <div
                     key={item.id}
@@ -180,9 +188,10 @@ export default function AssetPicker({ open, onClose, onSelect, multiple = true, 
                       border: isSelected ? '2px solid #1677ff' : '1px solid #f0f0f0',
                       borderRadius: 6,
                       overflow: 'hidden',
-                      cursor: 'pointer',
+                      cursor: cdnReady ? 'pointer' : 'not-allowed',
                       background: '#fff',
                       transition: 'all 0.2s',
+                      opacity: cdnReady ? 1 : 0.45,
                     }}
                   >
                     <div
@@ -196,7 +205,7 @@ export default function AssetPicker({ open, onClose, onSelect, multiple = true, 
                     >
                       {category === 'image' && (
                         <Image
-                          src={item.url}
+                          src={item.resolved_cdn_url || item.url}
                           preview={false}
                           alt={item.file_name}
                           style={{ width: '100%', height: '100%', objectFit: 'cover' }}

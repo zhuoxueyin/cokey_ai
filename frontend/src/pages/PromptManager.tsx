@@ -112,25 +112,29 @@ export default function PromptManager() {
     setEditingItem(null);
     setModalVisible(true);
   };
+ const parseTags = (raw: unknown): string[] => {
+   if (Array.isArray(raw)) return raw.map(String).filter(Boolean)
+   if (typeof raw === 'string' && raw.trim()) {
+     return raw.split(',').map((t) => t.trim()).filter(Boolean)
+   }
+   return []
+ }
+
  const handleSave = async () => {
  const values = await form.validateFields();
  try {
- if (editingItem) {
- await updatePrompt(editingItem._id, {
+ const payload = {
  name: values.name,
  content: values.content,
  category: values.category,
- tags: values.tags.split(',').map((t: string) => t.trim()).filter(Boolean),
- });
+ tags: parseTags(values.tags),
+ }
+ if (editingItem) {
+ await updatePrompt(editingItem._id, payload);
  message.success('更新成功');
  }
  else {
- await createPrompt({
- name: values.name,
- content: values.content,
- category: values.category,
- tags: values.tags.split(',').map((t: string) => t.trim()).filter(Boolean),
- });
+ await createPrompt(payload);
  message.success('创建成功');
  }
  setModalVisible(false);
@@ -271,7 +275,7 @@ export default function PromptManager() {
  </Card>
 
  {/* 新增/编辑弹窗 */}
- <Modal title={editingItem ? '编辑提示词' : '新增提示词'} visible={modalVisible} onOk={handleSave} onCancel={() => setModalVisible(false)} width={700}>
+ <Modal title={editingItem ? '编辑提示词' : '新增提示词'} open={modalVisible} onOk={handleSave} onCancel={() => setModalVisible(false)} width={700}>
  <Form form={form} layout="vertical">
  <Form.Item name="name" label="名称" rules={[{ required: true, message: '请输入名称' }]}>
  <Input placeholder="请输入提示词名称"/>
@@ -293,7 +297,7 @@ export default function PromptManager() {
  </Modal>
 
  {/* 版本管理弹窗 */}
- <Modal title="版本历史" visible={versionModalVisible} onCancel={() => setVersionModalVisible(false)} width={700} footer={null}>
+ <Modal title="版本历史" open={versionModalVisible} onCancel={() => setVersionModalVisible(false)} width={700} footer={null}>
  {versions.length > 0 ? (<Timeline mode="left">
  {versions.map((version) => (<Timeline.Item key={version._id} color={version.comment.includes('rollback') ? 'orange' : 'green'}>
  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>

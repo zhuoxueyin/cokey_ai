@@ -96,6 +96,44 @@ class UserService:
             {"$set": {"status": status}}
         )
 
+    async def update_profile(
+        self,
+        user_id: str,
+        nickname: Optional[str] = None,
+        avatar_url: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """更新用户资料（昵称、头像）"""
+        from bson.objectid import ObjectId
+
+        updates: Dict[str, Any] = {}
+        if nickname is not None:
+            nickname = nickname.strip()
+            if not nickname:
+                raise ValueError("昵称不能为空")
+            if len(nickname) > 32:
+                raise ValueError("昵称不能超过32个字符")
+            updates["nickname"] = nickname
+        if avatar_url is not None:
+            avatar_url = avatar_url.strip()
+            if not avatar_url:
+                raise ValueError("头像地址不能为空")
+            updates["avatar_url"] = avatar_url
+
+        if not updates:
+            raise ValueError("无更新内容")
+
+        result = await self.collection.update_one(
+            {"_id": ObjectId(user_id)},
+            {"$set": updates},
+        )
+        if result.matched_count == 0:
+            raise ValueError("用户不存在")
+
+        user = await self.get_by_id(user_id)
+        if not user:
+            raise ValueError("用户不存在")
+        return user
+
     async def verify_password(self, plain_password: str, hashed_password: str) -> bool:
         """验证密码"""
         password_bytes = plain_password[:72].encode('utf-8')

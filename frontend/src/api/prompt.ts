@@ -8,7 +8,7 @@ export async function createPrompt(data: {
   tags?: string[]
   description?: string
 }): Promise<PromptResponse> {
-  return request.post('/api/prompts', data)
+  return request.post('/prompts', data)
 }
 
 export async function updatePrompt(
@@ -19,17 +19,17 @@ export async function updatePrompt(
     category: 'text' | 'image' | 'video'
     tags: string[]
     description: string
-  }>
+  }>,
 ): Promise<PromptResponse> {
-  return request.put(`/api/prompts/${promptId}`, data)
+  return request.put(`/prompts/${promptId}`, data)
 }
 
-export async function deletePrompt(promptId: string): Promise<{ success: boolean; message: string }> {
-  return request.delete(`/api/prompts/${promptId}`)
+export async function deletePrompt(promptId: string): Promise<{ code: string; message: string }> {
+  return request.delete(`/prompts/${promptId}`)
 }
 
 export async function getPrompt(promptId: string): Promise<PromptResponse> {
-  return request.get(`/api/prompts/${promptId}`)
+  return request.get(`/prompts/${promptId}`)
 }
 
 export async function listPrompts(params: {
@@ -37,25 +37,27 @@ export async function listPrompts(params: {
   page?: number
   page_size?: number
 }): Promise<PromptListResponse> {
-  return request.get('/api/prompts', { params })
+  return request.get('/prompts', { params })
 }
 
 export async function publishPrompt(promptId: string): Promise<PromptResponse> {
-  return request.post(`/api/prompts/${promptId}/publish`)
+  return request.post(`/prompts/${promptId}/publish`)
 }
 
 export async function rollbackPrompt(promptId: string, version: number): Promise<PromptResponse> {
-  return request.post(`/api/prompts/${promptId}/rollback`, { version })
+  return request.post(`/prompts/${promptId}/rollback`, { version })
 }
 
 export async function getPromptVersions(promptId: string): Promise<PromptVersionResponse> {
-  return request.get(`/api/prompts/${promptId}/versions`)
+  return request.get(`/prompts/${promptId}/versions`)
 }
 
-export async function getPublishedPrompts(): Promise<{ success: boolean; data: PromptItem[] }> {
-  return request.get('/api/prompts/published/list')
+export async function getPublishedPrompts(): Promise<{ code: string; data: PromptItem[] }> {
+  return request.get('/prompts/published/list')
 }
 
-export async function getPublishedContent(promptId: string): Promise<{ success: boolean; data: { prompt_id: string; content: string } }> {
-  return request.get(`/api/prompts/${promptId}/published/content`)
+export async function getPublishedContent(
+  promptId: string,
+): Promise<{ code: string; data: { prompt_id: string; content: string } }> {
+  return request.get(`/prompts/${promptId}/published/content`)
 }

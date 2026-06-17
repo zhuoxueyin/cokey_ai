@@ -209,6 +209,8 @@ export interface AssetItem {
   file_path: string
   url: string
   cdn_urls: string[]
+  resolved_cdn_url?: string
+  cdn_ready?: boolean
   file_size: number
   content_type: string
   category: 'image' | 'file' | 'video'

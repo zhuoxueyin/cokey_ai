@@ -70,6 +70,7 @@ async def login(body: dict = Body(...)):
                 "userId": user["_id"],
                 "username": user["username"],
                 "nickname": user["nickname"],
+                "avatar_url": user.get("avatar_url", ""),
                 "status": user["status"]
             }
         }, message="登录成功")

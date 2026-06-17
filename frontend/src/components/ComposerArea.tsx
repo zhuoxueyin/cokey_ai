@@ -32,96 +32,20 @@ import {
 const { TextArea } = Input
 const { Dragger } = Upload
 
-// ==================== GPT Image 2 官方尺寸规则 ====================
-const LONG_EDGE_BASE: Record<'1k' | '2k' | '4k', number> = {
-  '1k': 1024,
-  '2k': 2048,
-  '4k': 3840,
-}
-
-const MAX_SIDE = 3840
-const MIN_PIXELS = 655360
-const MAX_PIXELS = 8294400
-const ALIGN = 16
-
-function align16(v: number): number {
-  return Math.max(ALIGN, Math.round(v / ALIGN) * ALIGN)
-}
-
-function calcSize(ratioW: number, ratioH: number, clarity: '1k' | '2k' | '4k'): string {
-  const base = LONG_EDGE_BASE[clarity]
-  let w: number
-  let h: number
-  if (ratioW >= ratioH) {
-    w = base
-    h = Math.round((base * ratioH) / ratioW)
-  } else {
-    h = base
-    w = Math.round((base * ratioW) / ratioH)
-  }
-
-  w = align16(w)
-  h = align16(h)
-
-  if (w > MAX_SIDE || h > MAX_SIDE) {
-    const scale = MAX_SIDE / Math.max(w, h)
-    w = align16(Math.floor(w * scale))
-    h = align16(Math.floor(h * scale))
-  }
-
-  const longSide = Math.max(w, h)
-  const shortSide = Math.min(w, h)
-  if (shortSide > 0 && longSide / shortSide > 3) {
-    if (w >= h) {
-      h = align16(Math.floor(w / 3))
-    } else {
-      w = align16(Math.floor(h / 3))
-    }
-  }
-
-  let total = w * h
-  if (total > MAX_PIXELS) {
-    const scale = Math.sqrt(MAX_PIXELS / total)
-    w = align16(Math.floor(w * scale))
-    h = align16(Math.floor(h * scale))
-  }
-  total = w * h
-  if (total < MIN_PIXELS) {
-    const scale = Math.sqrt(MIN_PIXELS / total)
-    w = align16(Math.ceil(w * scale))
-    h = align16(Math.ceil(h * scale))
-  }
-
-  return `${w}x${h}`
-}
-
-// ==================== 比例选项 ====================
-type RatioKey =
-  | '1:1'
-  | '3:2'
-  | '2:3'
-  | '4:3'
-  | '3:4'
-  | '16:9'
-  | '9:16'
-  | '21:9'
-  | '9:21'
-  | '3:1'
-  | '1:3'
-
-const RATIO_OPTIONS: { key: RatioKey; w: number; h: number; label: string }[] = [
-  { key: '1:1', w: 1, h: 1, label: '1:1' },
-  { key: '3:2', w: 3, h: 2, label: '3:2' },
-  { key: '2:3', w: 2, h: 3, label: '2:3' },
-  { key: '4:3', w: 4, h: 3, label: '4:3' },
-  { key: '3:4', w: 3, h: 4, label: '3:4' },
-  { key: '16:9', w: 16, h: 9, label: '16:9' },
-  { key: '9:16', w: 9, h: 16, label: '9:16' },
-  { key: '21:9', w: 21, h: 9, label: '21:9' },
-  { key: '9:21', w: 9, h: 21, label: '9:21' },
-  { key: '3:1', w: 3, h: 1, label: '3:1' },
-  { key: '1:3', w: 1, h: 3, label: '1:3' },
-]
+import {
+  type AspectRatioKey,
+  type ImageClarity,
+  buildImageSizeParams,
+  clampSizeSelection,
+  CLARITY_HINTS,
+  CLARITY_LABELS,
+  findPresetBySize,
+  getClaritiesForRatio,
+  getRatiosForClarity,
+  resolveImageSizeSpec,
+  resolveOfficialSize,
+  toRatioOptions,
+} from '@/constants/imageSizeSpec'
 
 const RatioIcon = ({ w, h }: { w: number; h: number }) => {
   const box = 32
@@ -162,8 +86,8 @@ const RatioIcon = ({ w, h }: { w: number; h: number }) => {
 // ==================== 类型特定状态接口 ====================
 interface CategoryState {
   prompt: string
-  ratio: RatioKey | 'auto'
-  clarity: '1k' | '2k' | '4k'
+  ratio: AspectRatioKey | 'auto'
+  clarity: ImageClarity
   quality: 'auto' | 'low' | 'medium' | 'high'
   background: 'auto' | 'transparent' | 'opaque'
   count: 1 | 2 | 3 | 4
@@ -194,6 +118,8 @@ export default function ComposerArea() {
   const { activeCategory, currentModel } = useGenerationStore()
   const setParamsWithCategory = useGenerationStore((s) => (s as any).setParamsWithCategory)
 
+  const imageSizeSpec = resolveImageSizeSpec(currentModel)
+
   // 需求2: 不同类型之间隔离数据
   const [categoryStates, setCategoryStates] = useState<Record<string, CategoryState>>({
     text: createDefaultState(),
@@ -203,6 +129,25 @@ export default function ComposerArea() {
 
   // 当前激活分类的状态
   const currentState = categoryStates[activeCategory] || createDefaultState()
+
+  const ratioOptionsForClarity = toRatioOptions(imageSizeSpec, currentState.clarity)
+  const activeRatioKey: AspectRatioKey =
+    currentState.ratio === 'auto'
+      ? ratioOptionsForClarity[0]?.key ?? '1:1'
+      : currentState.ratio
+  const clarityOptionsForRatio = getClaritiesForRatio(imageSizeSpec, activeRatioKey)
+
+  // 切换模型时，将比例/清晰度收敛到该模型官方支持项
+  useEffect(() => {
+    if (activeCategory !== 'image' || !currentModel) return
+    const spec = resolveImageSizeSpec(currentModel)
+    setCategoryStates((prev) => {
+      const state = prev.image
+      const { ratio, clarity } = clampSizeSelection(spec, state.ratio, state.clarity)
+      if (ratio === state.ratio && clarity === state.clarity) return prev
+      return { ...prev, image: { ...state, ratio, clarity } }
+    })
+  }, [currentModel?.model_code, activeCategory])
 
   const [pickerOpen, setPickerOpen] = useState(false)
   const [configOpen, setConfigOpen] = useState(false)
@@ -255,66 +200,43 @@ export default function ComposerArea() {
         let ratioFromSize = false
         
         if (params.size !== undefined && params.size.includes('x')) {
-          const [w, h] = params.size.split('x').map(Number)
-          if (w && h) {
-            // 🔧 从尺寸反推清晰度（clarity）
-            // 根据长边判断：1024→1k, 2048→2k, 3840→4k
-            const longSide = Math.max(w, h)
-            if (longSide <= 1200) {
-              state.clarity = '1k'
-            } else if (longSide <= 2500) {
-              state.clarity = '2k'
-            } else {
-              state.clarity = '4k'
-            }
-            
-            // 优先尝试精确匹配比例（覆盖所有常见尺寸组合）
-            const ratioMap: Record<string, RatioKey> = {
-              // 1k 清晰度 (长边 ~1024)
-              '1024x1024': '1:1',
-              '768x1024': '3:4',
-              '1024x768': '4:3',
-              '576x1024': '9:16',
-              '1024x576': '16:9',
-              // 1.5k 清晰度 (长边 ~1536)
-              '1536x1536': '1:1',
-              '1152x1536': '3:4',
-              '1536x1152': '4:3',
-              '864x1536': '9:16',
-              '1536x864': '16:9',
-              // 2k 清晰度 (长边 ~2048)
-              '2048x2048': '1:1',
-              '1536x2048': '3:4',
-              '2048x1536': '4:3',
-              '1152x2048': '9:16',
-              '2048x1152': '16:9',
-              // 4k 清晰度 (长边 ~3840)
-              '3840x3840': '1:1',
-              '2880x3840': '3:4',
-              '3840x2880': '4:3',
-              '2160x3840': '9:16',
-              '3840x2160': '16:9',
-            }
-            const ratioKey = `${w}x${h}`
-            if (ratioMap[ratioKey]) {
-              state.ratio = ratioMap[ratioKey]
-              ratioFromSize = true
-            } else {
-              // 通过计算宽高比来推断比例
-              const gcd = (a: number, b: number): number => b === 0 ? a : gcd(b, a % b)
+          const spec = resolveImageSizeSpec(currentModel)
+          const found = findPresetBySize(spec, params.size)
+          if (found) {
+            state.ratio = found.aspectRatio
+            state.clarity = found.clarity
+            ratioFromSize = true
+          } else {
+            const [w, h] = params.size.split('x').map(Number)
+            if (w && h) {
+              const gcd = (a: number, b: number): number => (b === 0 ? a : gcd(b, a % b))
               const divisor = gcd(w, h)
-              const simplifiedW = Math.round(w / divisor)
-              const simplifiedH = Math.round(h / divisor)
-              const inferredRatio = `${simplifiedW}:${simplifiedH}` as RatioKey
-              // 检查是否是有效的比例选项
-              const isValidRatio = RATIO_OPTIONS.some(r => r.key === inferredRatio)
-              if (isValidRatio) {
+              const inferredRatio = `${Math.round(w / divisor)}:${Math.round(h / divisor)}` as AspectRatioKey
+              const ratios = toRatioOptions(spec)
+              if (ratios.some((r) => r.key === inferredRatio)) {
                 state.ratio = inferredRatio
+                const clarities = getClaritiesForRatio(spec, inferredRatio)
+                state.clarity = clarities[0] || '1k'
                 ratioFromSize = true
               }
             }
           }
         }
+        if (params.aspect_ratio && !ratioFromSize) {
+          const ar = params.aspect_ratio as AspectRatioKey
+          if (toRatioOptions(imageSizeSpec).some((r) => r.key === ar)) {
+            state.ratio = ar
+            ratioFromSize = true
+          }
+        }
+        if (params.resolution && ['1k', '2k', '4k'].includes(params.resolution)) {
+          state.clarity = params.resolution as ImageClarity
+        }
+        if (false) {
+          // legacy size parse removed
+          const _unused = params.size
+        }
+        if (false && params.size !== undefined && params.size.includes('x')) {
         if (params.quality !== undefined) {
           const q = params.quality as 'auto' | 'low' | 'medium' | 'high'
           if (['auto', 'low', 'medium', 'high'].includes(q)) {
@@ -394,7 +316,7 @@ export default function ComposerArea() {
     setPromptLoading(true)
     try {
       const res = await getPublishedPrompts()
-      if (res.success && res.data) {
+      if (res.code === 'success' && res.data) {
         setPromptList(res.data || [])
       }
     } catch (e) {
@@ -472,6 +394,13 @@ export default function ComposerArea() {
   }
 
   const toggleAsset = (id: string) => {
+    if (pickerCategory === 'image') {
+      const asset = assetList.find((a) => a.id === id)
+      if (asset && !isAssetCdnReady(asset)) {
+        message.warning('该图片无法用于生图（非 CDN 地址，请重新上传）')
+        return
+      }
+    }
     const next = new Set(selectedAssets)
     if (next.has(id)) next.delete(id)
     else next.add(id)
@@ -482,22 +411,28 @@ export default function ComposerArea() {
     const selectedItems = assetList.filter((a) => selectedAssets.has(a.id))
     
     if (pickerCategory === 'image') {
-      const invalid = selectedItems.filter((a) => !isAssetCdnReady(a))
-      if (invalid.length > 0) {
-        message.error('所选图片含非 CDN 地址，无法用于生图')
+      const validItems: ImageRef[] = []
+      const skipped: string[] = []
+      for (const a of selectedItems) {
+        if (!isAssetCdnReady(a)) {
+          skipped.push(a.file_name || a.id)
+          continue
+        }
+        try {
+          validItems.push({ cdn_url: pickCdnUrl(a), file_name: a.file_name })
+        } catch {
+          skipped.push(a.file_name || a.id)
+        }
+      }
+      if (validItems.length === 0) {
+        message.error('所选图片均无法用于生图（旧版生成图含 Base64 数据，请重新上传或使用带 CDN 标记的图片）')
         return
       }
-      const newImages = [
-        ...currentState.uploadImages,
-        ...selectedItems.map((a) => ({
-          cdn_url: pickCdnUrl(a),
-          file_name: a.file_name,
-        })),
-      ]
-      updateCurrentState({ uploadImages: newImages })
-      if (selectedAssets.size > 0) {
-        message.success(`已添加 ${selectedAssets.size} 张图片`)
+      if (skipped.length > 0) {
+        message.warning(`已跳过 ${skipped.length} 张不可用图片（非 CDN 地址）`)
       }
+      updateCurrentState({ uploadImages: [...currentState.uploadImages, ...validItems] })
+      message.success(`已添加 ${validItems.length} 张图片`)
     } else if (pickerCategory === 'video') {
       const newVideos = [
         ...currentState.uploadVideos,
@@ -1237,28 +1172,47 @@ export default function ComposerArea() {
               >
                 {assetList.map((a) => {
                   const selected = selectedAssets.has(a.id)
+                  const cdnReady = pickerCategory !== 'image' || isAssetCdnReady(a)
                   return (
                     <div
                       key={a.id}
-                      onClick={() => toggleAsset(a.id)}
+                      onClick={() => cdnReady && toggleAsset(a.id)}
                       style={{
                         position: 'relative',
                         borderRadius: 8,
                         overflow: 'hidden',
                         border: selected ? '2px solid #1677ff' : '1px solid #f0f0f0',
                         aspectRatio: pickerCategory === 'image' ? '1' : '16/9',
-                        cursor: 'pointer',
+                        cursor: cdnReady ? 'pointer' : 'not-allowed',
                         background: '#fafafa',
                         boxSizing: 'border-box',
+                        opacity: cdnReady ? 1 : 0.45,
                       }}
                     >
                       {pickerCategory === 'image' && (
                         <Image
-                          src={a.url}
+                          src={a.resolved_cdn_url || a.url}
                           alt={a.file_name}
                           preview={false}
                           style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                         />
+                      )}
+                      {pickerCategory === 'image' && !cdnReady && (
+                        <div
+                          style={{
+                            position: 'absolute',
+                            bottom: 0,
+                            left: 0,
+                            right: 0,
+                            background: 'rgba(0,0,0,0.55)',
+                            color: '#fff',
+                            fontSize: 10,
+                            padding: '4px 6px',
+                            textAlign: 'center',
+                          }}
+                        >
+                          不可用于生图
+                        </div>
                       )}
                       {pickerCategory === 'video' && (
                         <video
@@ -1312,18 +1266,15 @@ export default function ComposerArea() {
 
   return (
     <Card
-      style={{
-        borderRadius: 12,
-        boxShadow: '0 4px 20px rgba(0,0,0,0.08)',
-      }}
-      bodyStyle={{ padding: 16 }}
+      className="composer-panel"
+      bordered={false}
     >
       {/* 类型选择 */}
       <div
         style={{
           display: 'flex',
-          gap: 4,
-          marginBottom: 10,
+          gap: 2,
+          marginBottom: 6,
         }}
       >
         {(['image', 'video', 'text'] as const).map((cat) => (
@@ -1333,16 +1284,17 @@ export default function ComposerArea() {
             style={{
               display: 'flex',
               alignItems: 'center',
-              gap: 4,
-              padding: '5px 12px',
-              borderRadius: 6,
-              background: activeCategory === cat ? '#1677ff' : 'transparent',
+              gap: 3,
+              padding: '3px 10px',
+              borderRadius: 14,
+              background: activeCategory === cat ? 'linear-gradient(135deg, #7c5cfc 0%, #9b7dff 100%)' : 'transparent',
               color: activeCategory === cat ? '#fff' : '#666',
-              border: 'none',
+              border: activeCategory === cat ? 'none' : '1px solid #eee',
               cursor: 'pointer',
-              fontSize: 12,
+              fontSize: 11,
               fontWeight: 500,
               transition: 'all 0.2s',
+              lineHeight: 1.4,
             }}
           >
             {iconMap[cat]}
@@ -1352,15 +1304,15 @@ export default function ComposerArea() {
       </div>
 
       {/* 提示词输入 */}
-      <div style={{ marginBottom: 10 }}>
-        <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+      <div style={{ marginBottom: 6 }}>
+        <div style={{ display: 'flex', gap: 6, marginBottom: 4 }}>
           <Button
             type="text"
             icon={<FileTextOutlined />}
             onClick={handleLoadPrompts}
-            style={{ padding: '4px 12px', fontSize: 12, color: '#1677ff' }}
+            style={{ padding: '0 6px', fontSize: 11, color: '#7c5cfc', height: 24 }}
           >
-            选择提示词
+            提示词
           </Button>
           {promptList.length > 0 && (
             <Select
@@ -1392,15 +1344,15 @@ export default function ComposerArea() {
         <TextArea
           value={currentState.prompt}
           onChange={(e) => updateCurrentState({ prompt: e.target.value })}
-          placeholder="输入你想要的画面，支持 @ 图片、视频、音频自由组合，例如：让@图片1动起来像@视频1，声音用@音频1的音色"
-          rows={3}
-          style={{ borderRadius: 8, border: '1px solid #e8e8e8', lineHeight: 1.4 }}
+          placeholder="描述你想要的画面，支持 @ 引用素材..."
+          rows={2}
+          style={{ borderRadius: 8, border: '1px solid #ebebef', lineHeight: 1.45, fontSize: 13, resize: 'none' }}
         />
       </div>
 
       {/* 素材按钮区域 - 基于模型配置显示支持的上传类型 */}
-      <div style={{ marginBottom: 10 }}>
-        <div style={{ display: 'flex', gap: 6 }}>
+      <div style={{ marginBottom: 6 }}>
+        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', alignItems: 'center' }}>
           {/* 根据模型配置决定显示哪些上传按钮 */}
           {(currentModel?.supported_inputs?.video !== false || !currentModel) && (
             <Button
@@ -1408,21 +1360,22 @@ export default function ComposerArea() {
               size="small"
               onClick={() => openPicker('video')}
               style={{
-                width: 56,
-                height: 56,
-                borderRadius: 6,
+                width: 40,
+                height: 40,
+                borderRadius: 8,
                 border: '1px dashed #d9d9d9',
                 display: 'flex',
                 flexDirection: 'column',
                 alignItems: 'center',
                 justifyContent: 'center',
-                gap: 2,
-                color: '#666',
-                background: '#fff',
+                gap: 0,
+                color: '#888',
+                background: '#fafafa',
+                padding: 0,
               }}
             >
-              <PlusOutlined style={{ fontSize: 14 }} />
-              <span style={{ fontSize: 10 }}>视频</span>
+              <PlusOutlined style={{ fontSize: 12 }} />
+              <span style={{ fontSize: 9 }}>视频</span>
             </Button>
           )}
           {(currentModel?.supported_inputs?.image !== false || !currentModel) && (
@@ -1431,21 +1384,22 @@ export default function ComposerArea() {
               size="small"
               onClick={() => openPicker('image')}
               style={{
-                width: 56,
-                height: 56,
-                borderRadius: 6,
+                width: 40,
+                height: 40,
+                borderRadius: 8,
                 border: '1px dashed #d9d9d9',
                 display: 'flex',
                 flexDirection: 'column',
                 alignItems: 'center',
                 justifyContent: 'center',
-                gap: 2,
-                color: '#666',
-                background: '#fff',
+                gap: 0,
+                color: '#888',
+                background: '#fafafa',
+                padding: 0,
               }}
             >
-              <PlusOutlined style={{ fontSize: 14 }} />
-              <span style={{ fontSize: 10 }}>图片</span>
+              <PlusOutlined style={{ fontSize: 12 }} />
+              <span style={{ fontSize: 9 }}>图片</span>
             </Button>
           )}
           {(currentModel?.supported_inputs?.audio !== false || !currentModel) && (
@@ -1454,21 +1408,22 @@ export default function ComposerArea() {
               size="small"
               onClick={() => openPicker('audio')}
               style={{
-                width: 56,
-                height: 56,
-                borderRadius: 6,
+                width: 40,
+                height: 40,
+                borderRadius: 8,
                 border: '1px dashed #d9d9d9',
                 display: 'flex',
                 flexDirection: 'column',
                 alignItems: 'center',
                 justifyContent: 'center',
-                gap: 2,
-                color: '#666',
-                background: '#fff',
+                gap: 0,
+                color: '#888',
+                background: '#fafafa',
+                padding: 0,
               }}
             >
-              <PlusOutlined style={{ fontSize: 14 }} />
-              <span style={{ fontSize: 10 }}>音频</span>
+              <PlusOutlined style={{ fontSize: 12 }} />
+              <span style={{ fontSize: 9 }}>音频</span>
             </Button>
           )}
 
@@ -1487,8 +1442,8 @@ export default function ComposerArea() {
                   key={'img-' + idx}
                   style={{
                     position: 'relative',
-                    width: 80,
-                    height: 80,
+                    width: 56,
+                    height: 56,
                     borderRadius: 8,
                     overflow: 'hidden',
                     border: '1px solid #f0f0f0',
@@ -1539,8 +1494,8 @@ export default function ComposerArea() {
                   key={'vid-' + idx}
                   style={{
                     position: 'relative',
-                    width: 100,
-                    height: 60,
+                    width: 72,
+                    height: 48,
                     borderRadius: 8,
                     overflow: 'hidden',
                     border: '1px solid #f0f0f0',
@@ -1681,9 +1636,9 @@ export default function ComposerArea() {
                   key={idx}
                   style={{
                     position: 'relative',
-                    width: 100,
-                    height: 100,
-                    borderRadius: 8,
+                    width: 56,
+                    height: 56,
+                    borderRadius: 6,
                     overflow: 'hidden',
                     border: '1px solid #f0f0f0',
                   }}
@@ -1786,8 +1741,8 @@ export default function ComposerArea() {
                   key={idx}
                   style={{
                     position: 'relative',
-                    width: 100,
-                    height: 40,
+                    width: 72,
+                    height: 32,
                     borderRadius: 8,
                     overflow: 'hidden',
                     border: '1px solid #f0f0f0',
@@ -1829,9 +1784,9 @@ export default function ComposerArea() {
       )}
 
       {/* 底部工具栏 */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingTop: 8, borderTop: '1px solid #f0f0f0' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingTop: 6, borderTop: '1px solid #f0f0f2' }}>
         {/* 左侧：模型选择 */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
           <Popover
             content={modelPanel}
             title="选择模型"
@@ -1906,8 +1861,8 @@ export default function ComposerArea() {
 
           {/* 图片参数配置 */}
           {activeCategory === 'image' && (
-            <span style={{ fontSize: 12, color: '#666' }}>
-              尺寸: {currentSize}
+            <span style={{ fontSize: 11, color: '#999' }}>
+              {currentSize}
             </span>
           )}
 
@@ -1929,11 +1884,13 @@ export default function ComposerArea() {
             loading={submitting}
             onClick={handleSubmit}
             style={{
-              height: 28,
-              borderRadius: 14,
-              padding: '0 20px',
-              fontSize: 12,
+              height: 26,
+              borderRadius: 13,
+              padding: '0 16px',
+              fontSize: 11,
               fontWeight: 500,
+              background: 'linear-gradient(135deg, #7c5cfc 0%, #9b7dff 100%)',
+              border: 'none',
             }}
           >
             开始创作

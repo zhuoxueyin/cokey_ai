@@ -23,6 +23,8 @@ export interface PromptVersion {
 }
 
 export interface PromptListResponse {
+  code: string
+  message: string
   data: {
     data: PromptItem[]
     total: number
@@ -33,9 +35,13 @@ export interface PromptListResponse {
 }
 
 export interface PromptResponse {
+  code: string
+  message: string
   data: PromptItem
 }
 
 export interface PromptVersionResponse {
+  code: string
+  message: string
   data: PromptVersion[]
 }

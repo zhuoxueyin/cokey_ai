@@ -5,7 +5,7 @@ from datetime import datetime
 
 from app.core.database import get_collection
 from app.core.logging_config import get_logger
-from app.core.config import settings
+from app.core.cdn import resolve_asset_cdn_url
 from bson import ObjectId
 
 logger = get_logger()
@@ -96,12 +96,18 @@ class AssetService:
         return result.deleted_count > 0
 
     def _to_response(self, doc: Dict[str, Any]) -> Dict[str, Any]:
+        url = doc.get("url", "")
+        cdn_urls = doc.get("cdn_urls", [])
+        file_path = doc.get("file_path", "")
+        resolved = resolve_asset_cdn_url(url, cdn_urls, file_path)
         return {
             "id": str(doc["_id"]),
             "file_name": doc.get("file_name", ""),
-            "file_path": doc.get("file_path", ""),
-            "url": doc.get("url", ""),
-            "cdn_urls": doc.get("cdn_urls", []),
+            "file_path": file_path,
+            "url": url,
+            "cdn_urls": cdn_urls,
+            "resolved_cdn_url": resolved,
+            "cdn_ready": bool(resolved),
             "file_size": doc.get("file_size", 0),
             "content_type": doc.get("content_type", ""),
             "category": doc.get("category", "image"),

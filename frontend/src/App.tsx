@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react'
 import { BrowserRouter, Routes, Route, Link, useLocation, Navigate } from 'react-router-dom'
 import { useGenerationStore, validateProcessingTasks, syncTasksFromBackend } from './store/generation'
-import { Layout, Menu, ConfigProvider, Button, Dropdown, Avatar, Modal, Form, Input } from 'antd'
+import { Layout, Menu, Button, Dropdown, Avatar, Modal, Form, Input, Upload } from 'antd'
 import type { MenuProps } from 'antd'
+import type { UploadProps } from 'antd'
 import {
   FileTextOutlined,
   PictureOutlined,
@@ -18,6 +19,7 @@ import {
   UserOutlined,
   LogoutOutlined,
   EditOutlined,
+  DownOutlined,
 } from '@ant-design/icons'
 import Workspace from './pages/Workspace'
 import AssetManager from './pages/AssetManager'
@@ -26,7 +28,7 @@ import ChannelAdmin from './pages/ChannelAdmin'
 import TaskAdmin from './pages/TaskAdmin'
 import PromptManager from './pages/PromptManager'
 import Login from './pages/Login'
-import { logout } from './api'
+import { logout, uploadImage, updateProfile } from './api'
 import { message } from 'antd'
 
 const { Header, Sider, Content } = Layout
@@ -162,6 +164,21 @@ function AppContent() {
   const [editModalVisible, setEditModalVisible] = useState(false)
   const [form] = Form.useForm()
   const [avatarFile, setAvatarFile] = useState<File | null>(null)
+  const [avatarPreview, setAvatarPreview] = useState<string | null>(null)
+  const [savingProfile, setSavingProfile] = useState(false)
+
+  const revokePreviewUrl = (url: string | null) => {
+    if (url?.startsWith('blob:')) {
+      URL.revokeObjectURL(url)
+    }
+  }
+
+  const handleCloseEditModal = () => {
+    revokePreviewUrl(avatarPreview)
+    setAvatarFile(null)
+    setAvatarPreview(null)
+    setEditModalVisible(false)
+  }
 
   // 打开编辑模态框
   const handleOpenEditModal = () => {
@@ -170,71 +187,91 @@ function AppContent() {
         nickname: userInfo.nickname || '',
       })
       setAvatarFile(null)
+      setAvatarPreview(userInfo.avatar_url || null)
       setEditModalVisible(true)
     }
+  }
+
+  const handleBeforeUpload: UploadProps['beforeUpload'] = (file) => {
+    if (!file.type.startsWith('image/')) {
+      message.error('只能上传图片文件')
+      return Upload.LIST_IGNORE
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      message.error('图片不能超过 5MB')
+      return Upload.LIST_IGNORE
+    }
+    revokePreviewUrl(avatarPreview)
+    setAvatarFile(file)
+    setAvatarPreview(URL.createObjectURL(file))
+    return false
   }
 
   // 保存用户信息
   const handleSaveUserInfo = async () => {
     try {
-      const values = form.getFieldsValue()
-      const updatedUser = { ...userInfo!, nickname: values.nickname }
-      
-      // 如果有头像文件，这里可以添加头像上传逻辑
-      if (avatarFile) {
-        // 简单处理：模拟上传，实际项目中应该调用上传接口
-        console.log('上传头像:', avatarFile)
-      }
-      
-      // 保存到 localStorage
-      localStorage.setItem('user', JSON.stringify(updatedUser))
-      message.success('保存成功')
-      setEditModalVisible(false)
-      
-      // 刷新页面以显示更新后的信息
-      window.location.reload()
-    } catch (e) {
-      message.error('保存失败')
-    }
-  }
+      const values = await form.validateFields()
+      setSavingProfile(true)
 
-  // 处理头像上传
-  const handleAvatarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (file) {
-      setAvatarFile(file)
+      const payload: { nickname: string; avatar_url?: string } = {
+        nickname: values.nickname,
+      }
+
+      if (avatarFile) {
+        const uploadRes = await uploadImage(avatarFile)
+        if (uploadRes.code !== 'success' || !uploadRes.data?.url) {
+          message.error(uploadRes.message || '头像上传失败')
+          return
+        }
+        payload.avatar_url = uploadRes.data.url
+      }
+
+      const res = await updateProfile(payload)
+      if (res.code === 'success' && res.data) {
+        localStorage.setItem('user', JSON.stringify(res.data))
+        message.success('保存成功')
+        handleCloseEditModal()
+        window.location.reload()
+        return
+      }
+      message.error(res.message || '保存失败')
+    } catch (e: any) {
+      if (!e?.errorFields) {
+        message.error(e?.message || '保存失败')
+      }
+    } finally {
+      setSavingProfile(false)
     }
   }
 
   return (
     <Layout style={{ height: '100vh', overflow: 'hidden' }}>
-      <Header
-        style={{
-          background: '#fff',
-          padding: '0 24px',
-          borderBottom: '1px solid #f0f0f0',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          height: 64,
-          lineHeight: '64px',
-          flexShrink: 0,
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 20 }}>
+      <Header className="app-header">
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <Button
             type="text"
             icon={collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
             onClick={() => setCollapsed(!collapsed)}
-            style={{ fontSize: 16, width: 40, height: 40 }}
+            style={{ fontSize: 15, width: 32, height: 32 }}
           />
-          <h2 style={{ margin: 0, fontSize: 18, fontWeight: 600 }}>AIGC 创作平台</h2>
+          <h2 style={{ margin: 0, fontSize: 15, fontWeight: 600, color: '#1a1a1a' }}>AIGC 创作平台</h2>
         </div>
-        
+
         {userInfo && (
           <Dropdown
             menu={{
               items: [
+                {
+                  key: 'info',
+                  label: (
+                    <div style={{ padding: '4px 0', minWidth: 140 }}>
+                      <div style={{ fontSize: 13, fontWeight: 500 }}>{userInfo.nickname || userInfo.username}</div>
+                      <div style={{ fontSize: 11, color: '#999', marginTop: 2 }}>{userInfo.username}</div>
+                    </div>
+                  ),
+                  disabled: true,
+                },
+                { type: 'divider' },
                 {
                   key: 'edit',
                   icon: <EditOutlined />,
@@ -249,13 +286,22 @@ function AppContent() {
                 },
               ],
             }}
+            trigger={['click']}
+            placement="bottomRight"
           >
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', cursor: 'pointer' }}>
-              <Avatar size={32} icon={<UserOutlined />} />
-              <div style={{ textAlign: 'left' }}>
-                <div style={{ fontSize: 14, fontWeight: 500, color: '#333' }}>{userInfo.nickname || userInfo.username}</div>
-                <div style={{ fontSize: 12, color: '#999' }}>{userInfo.username}</div>
-              </div>
+            <div className="app-user-chip">
+              <Avatar
+                size={28}
+                src={userInfo.avatar_url || undefined}
+                style={{
+                  background: userInfo.avatar_url ? undefined : 'linear-gradient(135deg, #7c5cfc 0%, #a78bfa 100%)',
+                  flexShrink: 0,
+                }}
+              >
+                {!userInfo.avatar_url && (userInfo.nickname || userInfo.username || '?')[0]?.toUpperCase()}
+              </Avatar>
+              <span className="app-user-name">{userInfo.nickname || userInfo.username}</span>
+              <DownOutlined style={{ fontSize: 10, color: '#bbb', flexShrink: 0 }} />
             </div>
           </Dropdown>
         )}
@@ -264,34 +310,38 @@ function AppContent() {
       {/* 编辑用户信息模态框 */}
       <Modal
         title="编辑个人资料"
-        visible={editModalVisible}
-        onCancel={() => setEditModalVisible(false)}
+        open={editModalVisible}
+        onCancel={handleCloseEditModal}
         onOk={handleSaveUserInfo}
+        confirmLoading={savingProfile}
         okText="保存"
         cancelText="取消"
       >
         <Form form={form} layout="vertical">
           <Form.Item label="头像">
             <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-              <Avatar size={64} icon={<UserOutlined />} />
+              <Avatar
+                size={64}
+                src={avatarPreview || undefined}
+                icon={!avatarPreview ? <UserOutlined /> : undefined}
+                style={{
+                  background: avatarPreview ? undefined : 'linear-gradient(135deg, #7c5cfc 0%, #a78bfa 100%)',
+                }}
+              />
               <div>
-                <input
-                  type="file"
-                  accept="image/*"
-                  onChange={handleAvatarChange}
-                  style={{ display: 'none' }}
-                  id="avatar-upload"
-                />
-                <label htmlFor="avatar-upload">
+                <Upload accept="image/*" showUploadList={false} beforeUpload={handleBeforeUpload}>
                   <Button size="small" type="primary">
                     选择图片
                   </Button>
-                </label>
+                </Upload>
                 {avatarFile && (
                   <div style={{ marginTop: 8, fontSize: 12, color: '#666' }}>
                     已选择: {avatarFile.name}
                   </div>
                 )}
+                <div style={{ marginTop: 4, fontSize: 11, color: '#999' }}>
+                  支持 JPG/PNG/WebP，不超过 5MB
+                </div>
               </div>
             </div>
           </Form.Item>
@@ -308,7 +358,7 @@ function AppContent() {
         </Form>
       </Modal>
 
-      <Layout style={{ height: 'calc(100vh - 64px)', overflow: 'hidden' }}>
+      <Layout style={{ height: 'calc(100vh - 48px)', overflow: 'hidden' }}>
         <Sider
           width={220}
           collapsible
@@ -335,7 +385,7 @@ function AppContent() {
 
         <Content
           style={{
-            background: '#f5f5f5',
+            background: '#f2f3f5',
             height: '100%',
             overflow: 'hidden',
           }}
