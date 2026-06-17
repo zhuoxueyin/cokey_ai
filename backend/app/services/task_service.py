@@ -115,7 +115,9 @@ class TaskService:
 
     async def list(self, page: int = 1, page_size: int = 20, session_id: Optional[str] = None,
                    model_code: Optional[str] = None, category: Optional[str] = None,
-                   status: Optional[str] = None, user_id: Optional[str] = None) -> Tuple[List[Dict[str, Any]], int]:
+                   status: Optional[str] = None, user_id: Optional[str] = None,
+                   time_range: str = "6h",
+                   sort_by: str = "created_at", sort_order: int = -1) -> Tuple[List[Dict[str, Any]], int]:
         query = {}
         if user_id:
             # 支持查询有user_id的任务，以及兼容旧数据（没有user_id的任务）
@@ -132,8 +134,23 @@ class TaskService:
             query["category"] = category
         if status:
             query["status"] = status
-        # 升序排序（最早的在前面，最新的在底部），符合聊天对话习惯
-        cursor = self.collection.find(query).sort("created_at", 1).skip((page - 1) * page_size).limit(page_size)
+        
+        # 时间范围筛选
+        if time_range and time_range != "all":
+            from datetime import timedelta
+            now = datetime.utcnow()
+            time_map = {
+                "1h": timedelta(hours=1),
+                "6h": timedelta(hours=6),
+                "24h": timedelta(hours=24),
+                "7d": timedelta(days=7),
+                "30d": timedelta(days=30)
+            }
+            delta = time_map.get(time_range, timedelta(hours=6))  # 默认6小时
+            query["created_at"] = {"$gte": now - delta}
+        
+        # 默认降序排序（最新的在前面），支持自定义排序字段和顺序
+        cursor = self.collection.find(query).sort(sort_by, sort_order).skip((page - 1) * page_size).limit(page_size)
         total = await self.collection.count_documents(query)
         docs = []
         async for doc in cursor:
@@ -144,9 +161,26 @@ class TaskService:
         """按用户ID查询任务列表"""
         return await self.list(page=page, page_size=page_size, user_id=user_id)
 
-    async def list_by_session(self, session_id: str) -> List[Dict[str, Any]]:
-        # 使用降序排序，与list方法保持一致（最新的在前面）
-        cursor = self.collection.find({"session_id": session_id}).sort("created_at", -1)
+    async def list_by_session(self, session_id: str, category: str = None, time_range: int = None) -> List[Dict[str, Any]]:
+        # AI创作流使用升序排序（最早的在前面，最新的在底部），符合聊天对话习惯
+        # 与任务管理的降序排序（最新的在前面）相互隔离
+        from pymongo import ASCENDING
+        
+        query = {"session_id": session_id}
+        
+        # 类型筛选
+        if category and category != 'all':
+            query["category"] = category
+        
+        # 时间范围筛选（单位：小时，默认最近1天=24小时）
+        if time_range is None:
+            time_range = 24  # 默认最近1天
+        if time_range > 0:
+            from datetime import datetime, timedelta
+            start_time = datetime.utcnow() - timedelta(hours=time_range)
+            query["created_at"] = {"$gte": start_time}
+        
+        cursor = self.collection.find(query).sort("created_at", ASCENDING)
         docs = []
         async for doc in cursor:
             docs.append(self._to_response(doc))

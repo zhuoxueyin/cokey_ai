@@ -30,6 +30,7 @@ class ChannelService:
             "channel_code": data["channel_code"],
             "channel_name": data["channel_name"],
             "channel_type": data["channel_type"],
+            "channel_provider": data.get("channel_provider"),
             "base_url": data["base_url"],
             "auth_config": data.get("auth_config", {}),
             "api_config": data.get("api_config", {
@@ -38,6 +39,7 @@ class ChannelService:
                 "video_path": "/videos/generations",
                 "text_stream": True,
             }),
+            "endpoints": data.get("endpoints", []),
             "retry_config": data.get("retry_config", {"timeout": 30, "max_retries": 3, "retry_delay": 2}),
             "rate_limit_config": data.get("rate_limit_config", {"requests_per_minute": 60}),
             "status": data.get("status", "active"),
@@ -77,13 +79,15 @@ class ChannelService:
         if not ObjectId.is_valid(channel_id):
             return None
         update_data = {}
-        for key in ["channel_name", "channel_type", "base_url", "description"]:
+        for key in ["channel_name", "channel_type", "channel_provider", "base_url", "description"]:
             if key in data:
                 update_data[key] = data[key]
         if "auth_config" in data:
             update_data["auth_config"] = data["auth_config"]
         if "api_config" in data:
             update_data["api_config"] = data["api_config"]
+        if "endpoints" in data:
+            update_data["endpoints"] = data["endpoints"]
         if "retry_config" in data:
             update_data["retry_config"] = data["retry_config"]
         if "rate_limit_config" in data:
@@ -123,6 +127,7 @@ class ChannelService:
             "channel_code": doc["channel_code"],
             "channel_name": doc["channel_name"],
             "channel_type": doc["channel_type"],
+            "channel_provider": doc.get("channel_provider"),
             "base_url": doc["base_url"],
             "auth_config": self._mask_auth(doc.get("auth_config", {})),
             "api_config": doc.get("api_config", {
@@ -131,6 +136,7 @@ class ChannelService:
                 "video_path": "/videos/generations",
                 "text_stream": True,
             }),
+            "endpoints": doc.get("endpoints", []),
             "retry_config": doc.get("retry_config", {}),
             "rate_limit_config": doc.get("rate_limit_config", {}),
             "status": doc["status"],
@@ -146,6 +152,7 @@ class ChannelService:
             "channel_code": doc["channel_code"],
             "channel_name": doc["channel_name"],
             "channel_type": doc["channel_type"],
+            "channel_provider": doc.get("channel_provider"),
             "base_url": doc["base_url"],
             "auth_config": doc.get("auth_config", {}),
             "api_config": doc.get("api_config", {
@@ -154,6 +161,7 @@ class ChannelService:
                 "video_path": "/videos/generations",
                 "text_stream": True,
             }),
+            "endpoints": doc.get("endpoints", []),
             "retry_config": doc.get("retry_config", {}),
             "rate_limit_config": doc.get("rate_limit_config", {}),
             "status": doc["status"],

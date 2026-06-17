@@ -6,6 +6,7 @@ import time
 
 from app.core.logging_config import get_logger
 from app.core.config import settings
+from app.core.config_engine import ConfigEngine
 
 logger = get_logger()
 
@@ -34,19 +35,21 @@ class BaseChannelAdapter(ABC):
             "max_retries": 3,
             "retry_delay": 2
         })
+        # 记录HTTP请求信息
+        self._http_request_info: Optional[Dict[str, Any]] = None
 
     @abstractmethod
-    async def convert_params(self, model_config: Dict[str, Any], params: Dict[str, Any]) -> Dict[str, Any]:
+    async def convert_params(self, model_config: Dict[str, Any], params: Dict[str, Any], endpoint_config: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """通用参数转渠道专属参数"""
         pass
 
     @abstractmethod
-    async def call_api(self, category: str, channel_params: Dict[str, Any], channel_model_id: str, api_key: str) -> Dict[str, Any]:
+    async def call_api(self, category: str, channel_params: Dict[str, Any], channel_model_id: str, api_key: str, endpoint_config: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """调用渠道接口"""
         pass
 
     @abstractmethod
-    async def parse_result(self, category: str, raw_result: Dict[str, Any]) -> Dict[str, Any]:
+    async def parse_result(self, category: str, raw_result: Dict[str, Any], endpoint_config: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """渠道返回结果转平台统一格式"""
         pass
 
@@ -97,25 +100,61 @@ class BaseChannelAdapter(ABC):
 
         return raw_value
 
+    def _get_endpoint_by_type(self, endpoint_type: str) -> Optional[Dict[str, Any]]:
+        """根据端点类型获取渠道配置的端点信息"""
+        endpoints = self.channel_config.get("endpoints", [])
+        for endpoint in endpoints:
+            if endpoint.get("type") == endpoint_type:
+                return endpoint
+        return None
+
     async def execute(
         self,
         category: str,
-        model_config: Dict[str, Any],
-        params: Dict[str, Any],
-        channel_model_id: str,
-        api_key: str
+        endpoint_type: Optional[str] = None,
+        model_config: Dict[str, Any] = None,
+        params: Dict[str, Any] = None,
+        channel_model_id: str = "",
+        api_key: str = ""
     ) -> Dict[str, Any]:
         start_time = time.time()
-        logger.info(f"[{self.trace_id}] 开始调用渠道 {self.channel_code}, 分类={category}")
+        # 使用 endpoint_type，如果没有则使用 category
+        use_endpoint_type = endpoint_type or category
+        logger.info(f"[{self.trace_id}] 开始调用渠道 {self.channel_code}, 分类={category}, 端点类型={use_endpoint_type}")
+
+        # 获取端点配置
+        endpoint_config = self._get_endpoint_by_type(use_endpoint_type)
+        if not endpoint_config:
+            logger.warning(f"[{self.trace_id}] 渠道 {self.channel_code} 未配置端点类型 {use_endpoint_type}")
+            # 尝试使用默认端点（兼容旧配置）
+            endpoint_config = self._get_endpoint_by_type(category)
 
         try:
-            channel_params = await self.convert_params(model_config, params)
+            channel_params = await self.convert_params(model_config or {}, params or {}, endpoint_config)
             logger.info(f"[{self.trace_id}] 参数转换完成, 渠道参数={channel_params}")
 
-            raw_result = await self.call_api(category, channel_params, channel_model_id, api_key)
+            raw_result = await self.call_api(category, channel_params, channel_model_id, api_key, endpoint_config)
             logger.info(f"[{self.trace_id}] 渠道调用成功")
 
-            result = await self.parse_result(category, raw_result)
+            # 优先使用配置引擎解析响应，如果没有配置则使用默认解析
+            endpoint_type = endpoint_config.get("type") if endpoint_config else None
+            has_response_config = endpoint_config and (
+                endpoint_config.get("response_mappings")
+                or endpoint_config.get("response_extract_path")
+            )
+
+            if has_response_config and endpoint_type:
+                response_data = raw_result.get("response", raw_result)
+                parsed = ConfigEngine.parse_response(
+                    endpoint_config=endpoint_config,
+                    response=response_data,
+                    endpoint_type=endpoint_type,
+                    trace_id=self.trace_id,
+                )
+                result = parsed
+                logger.info(f"[{self.trace_id}] 使用配置化响应解析: type={parsed.get('type')}")
+            else:
+                result = await self.parse_result(category, raw_result, endpoint_config)
 
             duration_ms = int((time.time() - start_time) * 1000)
             logger.info(f"[{self.trace_id}] 结果解析完成, 耗时={duration_ms}ms")

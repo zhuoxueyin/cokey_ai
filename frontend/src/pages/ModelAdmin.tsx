@@ -28,6 +28,7 @@ import {
   SettingOutlined,
   EyeOutlined,
   CodeOutlined,
+  CopyOutlined,
 } from '@ant-design/icons'
 import {
   listModelsAdmin,
@@ -194,6 +195,27 @@ export default function ModelAdmin() {
     }
   }
 
+  const handleCopy = async (record: ModelItem) => {
+    setEditingItem(null)
+    form.resetFields()
+    const inputs = record.supported_inputs && Object.keys(record.supported_inputs).length > 0
+      ? record.supported_inputs
+      : { image: false, video: false, audio: false }
+    form.setFieldsValue({
+      model_code: record.model_code + '_copy',
+      model_name: record.model_name + ' (副本)',
+      category: record.category,
+      description: record.description,
+      status: 'offline',
+      sort_order: record.sort_order || 0,
+      is_default: false,
+      supported_inputs: inputs,
+    })
+    setBindings(record.channel_bindings ? record.channel_bindings.map(b => ({ ...b, status: 'inactive' })) : [])
+    await fetchChannels()
+    setModalVisible(true)
+  }
+
   const handleSubmit = async () => {
     try {
       const values = await form.validateFields()
@@ -332,12 +354,15 @@ export default function ModelAdmin() {
     {
       title: '操作',
       key: 'actions',
-      width: 180,
+      width: 220,
       fixed: 'right',
       render: (_, r) => (
         <Space size="small">
           <Tooltip title="查看详情">
             <Button size="small" icon={<EyeOutlined />} onClick={() => setViewItem(r)} />
+          </Tooltip>
+          <Tooltip title="复制">
+            <Button size="small" icon={<CopyOutlined />} onClick={() => handleCopy(r)} />
           </Tooltip>
           <Tooltip title="编辑">
             <Button size="small" icon={<EditOutlined />} onClick={() => handleEdit(r)} />
@@ -420,142 +445,150 @@ export default function ModelAdmin() {
         destroyOnClose
       >
         <Form form={form} layout="vertical">
-          <Row gutter={16}>
-            <Col span={12}>
-              <Form.Item name="model_code" label="模型编码" rules={[{ required: true, message: '请输入模型编码' }]}>
-                <Input placeholder="如: gpt-4o-mini" disabled={!!editingItem} />
-              </Form.Item>
-            </Col>
-            <Col span={12}>
-              <Form.Item name="model_name" label="模型名称" rules={[{ required: true, message: '请输入模型名称' }]}>
-                <Input placeholder="如: GPT-4o Mini" />
-              </Form.Item>
-            </Col>
-          </Row>
-          <Row gutter={16}>
-            <Col span={8}>
-              <Form.Item name="category" label="分类" rules={[{ required: true }]}>
-                <Select>
-                  <Option value="text">文本</Option>
-                  <Option value="image">图像</Option>
-                  <Option value="video">视频</Option>
-                </Select>
-              </Form.Item>
-            </Col>
-            <Col span={8}>
-              <Form.Item name="status" label="状态" rules={[{ required: true }]}>
-                <Select>
-                  <Option value="online">在线</Option>
-                  <Option value="offline">离线</Option>
-                  <Option value="maintenance">维护中</Option>
-                </Select>
-              </Form.Item>
-            </Col>
-            <Col span={8}>
-              <Form.Item name="sort_order" label="排序权重" initialValue={0}>
-                <InputNumber style={{ width: '100%' }} />
-              </Form.Item>
-            </Col>
-          </Row>
-          <Form.Item name="description" label="描述">
-            <TextArea rows={2} placeholder="模型描述..." />
-          </Form.Item>
-          <Form.Item name="is_default" label="设为该分类默认模型" valuePropName="checked">
-            <Switch />
-          </Form.Item>
-          <Divider orientation="left" plain>支持上传素材类型</Divider>
-          <Form.Item label="可选输入类型">
-            <Space wrap>
-              <Form.Item name={['supported_inputs', 'image']} valuePropName="checked" noStyle>
-                <Switch checkedChildren="图片" unCheckedChildren="图片" />
-              </Form.Item>
-              <Form.Item name={['supported_inputs', 'video']} valuePropName="checked" noStyle>
-                <Switch checkedChildren="视频" unCheckedChildren="视频" />
-              </Form.Item>
-              <Form.Item name={['supported_inputs', 'audio']} valuePropName="checked" noStyle>
-                <Switch checkedChildren="音频" unCheckedChildren="音频" />
-              </Form.Item>
-            </Space>
-            <span style={{ color: '#888', fontSize: 12, marginLeft: 8 }}>
-              勾选后，该模型在生成时将显示对应的上传按钮（仅视频模型支持多模态输入）
-            </span>
-          </Form.Item>
-          <Divider orientation="left" plain>渠道绑定</Divider>
-          <div style={{ marginBottom: 12 }}>
-            <Space>
-              <Button type="dashed" onClick={addBinding}>+ 添加渠道</Button>
-              <span style={{ color: '#888', fontSize: 12 }}>选择一个或多个渠道，网关按优先级从高到低路由</span>
-            </Space>
-          </div>
-          {bindings.length === 0 && (
-            <Empty
-              description="还没有绑定渠道"
-              style={{ margin: '12px 0 16px' }}
-              image={Empty.PRESENTED_IMAGE_SIMPLE}
-            />
-          )}
-          {bindings.map((b, idx) => (
-            <Card
-              key={idx}
-              size="small"
-              style={{ marginBottom: 8 }}
-              title={
-                <Space>
-                  <span>绑定 #{idx + 1}</span>
-                  {b.status === 'active' && <Tag color="green" style={{ margin: 0 }}>启用</Tag>}
-                  {b.status !== 'active' && <Tag color="default" style={{ margin: 0 }}>禁用</Tag>}
-                </Space>
-              }
-              extra={
-                <Button size="small" danger type="text" onClick={() => removeBinding(idx)}>删除</Button>
-              }
-            >
-              <Row gutter={12}>
-                <Col span={10}>
-                  <div style={{ fontSize: 12, color: '#666', marginBottom: 4 }}>渠道</div>
-                  <Select
-                    value={b.channel_code}
-                    onChange={(val) => updateBinding(idx, { channel_code: val })}
-                    style={{ width: '100%' }}
-                  >
-                    {channelList.map((c) => (
-                      <Option key={c.channel_code} value={c.channel_code}>
-                        {c.channel_name}
-                        {c.status === 'active' ? '' : ' (已禁用)'}
-                      </Option>
-                    ))}
+          {/* 基本信息 */}
+          <Card size="small" title="基本信息" style={{ marginBottom: 12 }}>
+            <Row gutter={16}>
+              <Col span={12}>
+                <Form.Item name="model_code" label="模型编码" rules={[{ required: true, message: '请输入模型编码' }]}>
+                  <Input placeholder="如: gpt-4o-mini" disabled={!!editingItem} />
+                </Form.Item>
+              </Col>
+              <Col span={12}>
+                <Form.Item name="model_name" label="模型名称" rules={[{ required: true, message: '请输入模型名称' }]}>
+                  <Input placeholder="如: GPT-4o Mini" />
+                </Form.Item>
+              </Col>
+            </Row>
+            <Row gutter={16}>
+              <Col span={8}>
+                <Form.Item name="category" label="分类" rules={[{ required: true }]}>
+                  <Select>
+                    <Option value="text">文本</Option>
+                    <Option value="image">图像</Option>
+                    <Option value="video">视频</Option>
                   </Select>
-                </Col>
-                <Col span={10}>
-                  <div style={{ fontSize: 12, color: '#666', marginBottom: 4 }}>渠道内模型 ID</div>
-                  <Input
-                    placeholder="如: gpt-5.5 / gemini-2.5-flash"
-                    value={b.channel_model_id}
-                    onChange={(e) => updateBinding(idx, { channel_model_id: e.target.value })}
-                  />
-                </Col>
-                <Col span={4}>
-                  <div style={{ fontSize: 12, color: '#666', marginBottom: 4 }}>优先级</div>
-                  <InputNumber
-                    value={b.priority}
-                    onChange={(val) => updateBinding(idx, { priority: Number(val) || 0 })}
-                    style={{ width: '100%' }}
-                  />
-                </Col>
-                <Col span={4}>
-                  <div style={{ fontSize: 12, color: '#666', marginBottom: 4 }}>状态</div>
-                  <Select
-                    value={b.status}
-                    onChange={(val) => updateBinding(idx, { status: val })}
-                    style={{ width: '100%' }}
-                  >
-                    <Option value="active">启用</Option>
-                    <Option value="inactive">禁用</Option>
+                </Form.Item>
+              </Col>
+              <Col span={8}>
+                <Form.Item name="status" label="状态" rules={[{ required: true }]}>
+                  <Select>
+                    <Option value="online">在线</Option>
+                    <Option value="offline">离线</Option>
+                    <Option value="maintenance">维护中</Option>
                   </Select>
-                </Col>
-              </Row>
-            </Card>
-          ))}
+                </Form.Item>
+              </Col>
+              <Col span={8}>
+                <Form.Item name="sort_order" label="排序权重" initialValue={0}>
+                  <InputNumber style={{ width: '100%' }} />
+                </Form.Item>
+              </Col>
+            </Row>
+            <Form.Item name="description" label="描述">
+              <TextArea rows={2} placeholder="模型描述..." />
+            </Form.Item>
+            <Form.Item name="is_default" label="设为该分类默认模型" valuePropName="checked">
+              <Switch />
+            </Form.Item>
+          </Card>
+
+          {/* 输入类型 */}
+          <Card size="small" title="支持的输入类型" style={{ marginBottom: 12 }}>
+            <Form.Item label="可选输入类型" style={{ marginBottom: 0 }}>
+              <Space wrap>
+                <Form.Item name={['supported_inputs', 'image']} valuePropName="checked" noStyle>
+                  <Switch checkedChildren="图片" unCheckedChildren="图片" />
+                </Form.Item>
+                <Form.Item name={['supported_inputs', 'video']} valuePropName="checked" noStyle>
+                  <Switch checkedChildren="视频" unCheckedChildren="视频" />
+                </Form.Item>
+                <Form.Item name={['supported_inputs', 'audio']} valuePropName="checked" noStyle>
+                  <Switch checkedChildren="音频" unCheckedChildren="音频" />
+                </Form.Item>
+              </Space>
+            </Form.Item>
+          </Card>
+
+          {/* 渠道绑定 */}
+          <Card size="small" title="渠道绑定" style={{ marginBottom: 12 }}>
+            <div style={{ marginBottom: 12 }}>
+              <Space>
+                <Button type="primary" onClick={addBinding}>+ 绑定渠道</Button>
+                <span style={{ color: '#888', fontSize: 12 }}>
+                  按优先级从高到低路由；填写渠道内的模型 ID
+                </span>
+              </Space>
+            </div>
+            {bindings.length === 0 && (
+              <Empty
+                description="还没有绑定渠道"
+                style={{ margin: '12px 0 16px' }}
+                image={Empty.PRESENTED_IMAGE_SIMPLE}
+              />
+            )}
+            {bindings.map((b, idx) => (
+              <Card
+                key={idx}
+                size="small"
+                style={{ marginBottom: 8 }}
+                title={
+                  <Space>
+                    <span>绑定 #{idx + 1}</span>
+                    {b.status === 'active' && <Tag color="green" style={{ margin: 0 }}>启用</Tag>}
+                    {b.status !== 'active' && <Tag color="default" style={{ margin: 0 }}>禁用</Tag>}
+                  </Space>
+                }
+                extra={
+                  <Button size="small" danger type="text" onClick={() => removeBinding(idx)}>删除</Button>
+                }
+              >
+                <Row gutter={12}>
+                  <Col span={10}>
+                    <div style={{ fontSize: 12, color: '#666', marginBottom: 4 }}>渠道</div>
+                    <Select
+                      value={b.channel_code}
+                      onChange={(val) => updateBinding(idx, { channel_code: val })}
+                      style={{ width: '100%' }}
+                    >
+                      {channelList.map((c) => (
+                        <Option key={c.channel_code} value={c.channel_code}>
+                          {c.channel_name}
+                          {c.status === 'active' ? '' : ' (已禁用)'}
+                        </Option>
+                      ))}
+                    </Select>
+                  </Col>
+                  <Col span={10}>
+                    <div style={{ fontSize: 12, color: '#666', marginBottom: 4 }}>渠道内模型 ID</div>
+                    <Input
+                      placeholder="如: gpt-5.5 / gemini-2.5-flash"
+                      value={b.channel_model_id}
+                      onChange={(e) => updateBinding(idx, { channel_model_id: e.target.value })}
+                    />
+                  </Col>
+                  <Col span={4}>
+                    <div style={{ fontSize: 12, color: '#666', marginBottom: 4 }}>优先级</div>
+                    <InputNumber
+                      value={b.priority}
+                      onChange={(val) => updateBinding(idx, { priority: Number(val) || 0 })}
+                      style={{ width: '100%' }}
+                    />
+                  </Col>
+                  <Col span={4}>
+                    <div style={{ fontSize: 12, color: '#666', marginBottom: 4 }}>状态</div>
+                    <Select
+                      value={b.status}
+                      onChange={(val) => updateBinding(idx, { status: val })}
+                      style={{ width: '100%' }}
+                    >
+                      <Option value="active">启用</Option>
+                      <Option value="inactive">禁用</Option>
+                    </Select>
+                  </Col>
+                </Row>
+              </Card>
+            ))}
+          </Card>
         </Form>
       </Modal>
 

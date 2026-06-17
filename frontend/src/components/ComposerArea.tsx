@@ -21,6 +21,13 @@ import { useGenerationStore } from '@/store/generation'
 import { generate, uploadAsset, listAssets } from '@/api'
 import { listPrompts, getPublishedPrompts } from '@/api/prompt'
 import type { AssetItem, ModelItem, PromptItem } from '@/types'
+import {
+  type ImageRef,
+  extractCdnUrls,
+  isAssetCdnReady,
+  normalizeImageRef,
+  pickCdnUrl,
+} from '@/utils/cdnUrl'
 
 const { TextArea } = Input
 const { Dragger } = Upload
@@ -163,7 +170,7 @@ interface CategoryState {
   videoDuration: number
   videoQuality: '480p' | '720p'
   videoAudio: boolean
-  uploadImages: { url: string; file_name?: string }[]
+  uploadImages: ImageRef[]
   uploadVideos: { url: string; file_name?: string }[]
   uploadAudios: { url: string; file_name?: string }[]
 }
@@ -243,39 +250,67 @@ export default function ComposerArea() {
         if (params.prompt !== undefined) {
           state.prompt = params.prompt
         }
+        
+        // 标记是否已从 size 解析出比例
+        let ratioFromSize = false
+        
         if (params.size !== undefined && params.size.includes('x')) {
           const [w, h] = params.size.split('x').map(Number)
           if (w && h) {
-            // 优先尝试精确匹配
+            // 🔧 从尺寸反推清晰度（clarity）
+            // 根据长边判断：1024→1k, 2048→2k, 3840→4k
+            const longSide = Math.max(w, h)
+            if (longSide <= 1200) {
+              state.clarity = '1k'
+            } else if (longSide <= 2500) {
+              state.clarity = '2k'
+            } else {
+              state.clarity = '4k'
+            }
+            
+            // 优先尝试精确匹配比例（覆盖所有常见尺寸组合）
             const ratioMap: Record<string, RatioKey> = {
+              // 1k 清晰度 (长边 ~1024)
               '1024x1024': '1:1',
               '768x1024': '3:4',
               '1024x768': '4:3',
               '576x1024': '9:16',
               '1024x576': '16:9',
+              // 1.5k 清晰度 (长边 ~1536)
+              '1536x1536': '1:1',
+              '1152x1536': '3:4',
+              '1536x1152': '4:3',
+              '864x1536': '9:16',
+              '1536x864': '16:9',
+              // 2k 清晰度 (长边 ~2048)
               '2048x2048': '1:1',
               '1536x2048': '3:4',
               '2048x1536': '4:3',
               '1152x2048': '9:16',
               '2048x1152': '16:9',
-              '3840x2160': '16:9',
-              '2160x3840': '9:16',
+              // 4k 清晰度 (长边 ~3840)
               '3840x3840': '1:1',
+              '2880x3840': '3:4',
+              '3840x2880': '4:3',
+              '2160x3840': '9:16',
+              '3840x2160': '16:9',
             }
             const ratioKey = `${w}x${h}`
             if (ratioMap[ratioKey]) {
               state.ratio = ratioMap[ratioKey]
+              ratioFromSize = true
             } else {
               // 通过计算宽高比来推断比例
               const gcd = (a: number, b: number): number => b === 0 ? a : gcd(b, a % b)
               const divisor = gcd(w, h)
-              const simplifiedW = w / divisor
-              const simplifiedH = h / divisor
+              const simplifiedW = Math.round(w / divisor)
+              const simplifiedH = Math.round(h / divisor)
               const inferredRatio = `${simplifiedW}:${simplifiedH}` as RatioKey
               // 检查是否是有效的比例选项
               const isValidRatio = RATIO_OPTIONS.some(r => r.key === inferredRatio)
               if (isValidRatio) {
                 state.ratio = inferredRatio
+                ratioFromSize = true
               }
             }
           }
@@ -296,10 +331,9 @@ export default function ComposerArea() {
           state.count = Math.min(4, Math.max(1, Number(params.n))) as 1 | 2 | 3 | 4
         }
         if (params.images !== undefined && Array.isArray(params.images)) {
-          state.uploadImages = params.images.map((img: any) => ({ 
-            url: typeof img === 'string' ? img : (img.url || ''), 
-            file_name: typeof img === 'object' ? img.file_name : undefined 
-          }))
+          state.uploadImages = params.images
+            .map((img: any) => normalizeImageRef(img))
+            .filter((ref): ref is ImageRef => ref !== null)
         }
         if (params.videos !== undefined && Array.isArray(params.videos)) {
           state.uploadVideos = params.videos.map((video: any) => ({ 
@@ -313,7 +347,8 @@ export default function ComposerArea() {
             file_name: typeof audio === 'object' ? audio.file_name : undefined 
           }))
         }
-        if (params.ratio !== undefined) {
+        // 只有在没有从 size 解析出比例的情况下，才使用 params.ratio
+        if (params.ratio !== undefined && !ratioFromSize) {
           state.ratio = params.ratio as RatioKey | 'auto'
         }
         if (params.duration !== undefined) {
@@ -389,10 +424,17 @@ export default function ComposerArea() {
     try {
       const res = await uploadAsset(file, { category: type, source_type: 'upload' })
       if (res.code === 'success' && res.data) {
-        const data = res.data as any
+        const data = res.data as AssetItem
         if (type === 'image') {
+          let cdnUrl: string
+          try {
+            cdnUrl = pickCdnUrl(data)
+          } catch {
+            message.error('上传成功但未获得有效 CDN 地址，请检查存储配置')
+            return
+          }
           updateCurrentState({
-            uploadImages: [...currentState.uploadImages, { url: data.url, file_name: data.file_name }],
+            uploadImages: [...currentState.uploadImages, { cdn_url: cdnUrl, file_name: data.file_name }],
           })
         } else if (type === 'video') {
           updateCurrentState({
@@ -404,6 +446,8 @@ export default function ComposerArea() {
           })
         }
         message.success('上传成功')
+      } else {
+        message.error('上传失败')
       }
     } catch (e) {
       message.error('上传失败')
@@ -438,9 +482,17 @@ export default function ComposerArea() {
     const selectedItems = assetList.filter((a) => selectedAssets.has(a.id))
     
     if (pickerCategory === 'image') {
+      const invalid = selectedItems.filter((a) => !isAssetCdnReady(a))
+      if (invalid.length > 0) {
+        message.error('所选图片含非 CDN 地址，无法用于生图')
+        return
+      }
       const newImages = [
         ...currentState.uploadImages,
-        ...selectedItems.map((a) => ({ url: a.url, file_name: a.file_name })),
+        ...selectedItems.map((a) => ({
+          cdn_url: pickCdnUrl(a),
+          file_name: a.file_name,
+        })),
       ]
       updateCurrentState({ uploadImages: newImages })
       if (selectedAssets.size > 0) {
@@ -493,8 +545,14 @@ export default function ComposerArea() {
 
     const finalParams: Record<string, any> = { prompt: currentState.prompt.trim() }
 
-    if (currentState.uploadImages.length > 0) {
-      finalParams.images = currentState.uploadImages
+    try {
+      if (currentState.uploadImages.length > 0) {
+        finalParams.images = extractCdnUrls(currentState.uploadImages)
+      }
+    } catch (e: any) {
+      setSubmitting(false)
+      message.error(e?.message || '参考图须为已上传的 CDN 地址')
+      return
     }
 
     if (activeCategory === 'image') {
@@ -510,7 +568,7 @@ export default function ComposerArea() {
       finalParams.audio = currentState.videoAudio
       finalParams.watermark = false
       if (currentState.uploadImages.length > 0) {
-        finalParams.images = currentState.uploadImages
+        finalParams.images = extractCdnUrls(currentState.uploadImages)
       }
       if (currentState.uploadVideos.length > 0) {
         finalParams.videos = currentState.uploadVideos
@@ -1008,7 +1066,7 @@ export default function ComposerArea() {
                       }}
                     >
                       <Image
-                        src={img.url}
+                        src={img.cdn_url}
                         alt="upload"
                         preview={false}
                         style={{ width: '100%', height: '100%', objectFit: 'cover' }}
@@ -1437,7 +1495,7 @@ export default function ComposerArea() {
                   }}
                 >
                   <Image
-                    src={img.url}
+                    src={img.cdn_url}
                     alt="upload"
                     preview={false}
                     style={{ width: '100%', height: '100%', objectFit: 'cover' }}
@@ -1631,7 +1689,7 @@ export default function ComposerArea() {
                   }}
                 >
                   <Image
-                    src={img.url}
+                    src={img.cdn_url}
                     alt="upload"
                     preview={false}
                     style={{ width: '100%', height: '100%', objectFit: 'cover' }}

@@ -29,7 +29,14 @@ import type { TaskItem } from '@/types'
 
 export default function ChatArea({ tasks: tasksProp }: { tasks?: TaskItem[] }) {
   const { currentModel, activeCategory, sessionId, setSessionId } = useGenerationStore()
-  const tasksToRender = tasksProp !== undefined ? tasksProp : useGenerationStore((s) => s.tasks)
+  const rawTasks = tasksProp !== undefined ? tasksProp : useGenerationStore((s) => s.tasks)
+  
+  // 🔧 前端按 created_at 升序排序（最早在前，最新在底部）
+  // 不依赖后端或 store 的顺序，确保渲染正确
+  const tasksToRender = [...rawTasks].sort((a, b) => 
+    new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+  )
+  
   const bottomRef = useRef<HTMLDivElement>(null)
   
   // 图片预览状态
@@ -111,7 +118,7 @@ export default function ChatArea({ tasks: tasksProp }: { tasks?: TaskItem[] }) {
     const link = document.createElement('a')
     link.href = url
     link.download = filename || `aigc_${Date.now()}`
-    link.target = '_blank'
+    link.rel = 'noopener noreferrer'
     document.body.appendChild(link)
     link.click()
     document.body.removeChild(link)
@@ -147,7 +154,9 @@ export default function ChatArea({ tasks: tasksProp }: { tasks?: TaskItem[] }) {
         marginTop: 8,
       }}
     >
-      {images.map((img, idx) => (
+      {images.map((img, idx) => {
+        const src = typeof img === 'string' ? img : (img.cdn_url ?? img.url)
+        return (
         <div
           key={idx}
           style={{
@@ -158,9 +167,10 @@ export default function ChatArea({ tasks: tasksProp }: { tasks?: TaskItem[] }) {
             border: '1px solid #e8e8e8',
           }}
         >
-          <img src={img.url} alt={`图片 ${idx + 1}`} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+          <img src={src} alt={`图片 ${idx + 1}`} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
         </div>
-      ))}
+        )
+      })}
     </div>
   )
 

@@ -102,6 +102,16 @@ export default function PromptManager() {
     setEditingItem(item);
     setModalVisible(true);
   };
+  const handleCopy = (item: PromptItem) => {
+    form.setFieldsValue({
+      name: item.name + ' (副本)',
+      content: item.content,
+      category: item.category,
+      tags: item.tags.join(','),
+    });
+    setEditingItem(null);
+    setModalVisible(true);
+  };
  const handleSave = async () => {
  const values = await form.validateFields();
  try {
@@ -218,6 +228,11 @@ export default function PromptManager() {
  <Tooltip title="查看版本">
  <Button size="small" onClick={() => handleViewVersions(record._id)}>
  <EyeOutlined/>
+ </Button>
+ </Tooltip>
+ <Tooltip title="复制">
+ <Button size="small" onClick={() => handleCopy(record)}>
+ <CopyOutlined/>
  </Button>
  </Tooltip>
  {record.published_version !== record.version && (<Tooltip title="发布版本">

@@ -63,8 +63,11 @@ export default function TaskAdmin() {
   const [pageSize, setPageSize] = useState(20)
   const [filterCategory, setFilterCategory] = useState<string | undefined>()
   const [filterStatus, setFilterStatus] = useState<string | undefined>()
+  const [timeRange, setTimeRange] = useState<string>('6h')  // 默认最近6小时
   const [viewItem, setViewItem] = useState<TaskItem | null>(null)
   const [stats, setStats] = useState<TaskStats | null>(null)
+  const [sortBy, setSortBy] = useState('created_at')
+  const [sortOrder, setSortOrder] = useState(-1)
 
   const fetchData = async () => {
     setLoading(true)
@@ -74,6 +77,9 @@ export default function TaskAdmin() {
         page_size: pageSize,
         category: filterCategory,
         status: filterStatus,
+        time_range: timeRange,
+        sort_by: sortBy,
+        sort_order: sortOrder,
       })
       setData(res.data || [])
       setTotal(res.total || 0)
@@ -126,7 +132,7 @@ export default function TaskAdmin() {
   useEffect(() => {
     fetchData()
     fetchStats()
-  }, [page, pageSize, filterCategory, filterStatus])
+  }, [page, pageSize, filterCategory, filterStatus, timeRange, sortBy, sortOrder])
 
   const columns: ColumnsType<TaskItem> = [
     {
@@ -274,6 +280,19 @@ export default function TaskAdmin() {
         extra={
           <Space>
             <Select
+              placeholder="时间范围"
+              style={{ width: 120 }}
+              value={timeRange}
+              onChange={(v) => { setTimeRange(v); setPage(1) }}
+            >
+              <Option value="1h">最近1小时</Option>
+              <Option value="6h">最近6小时</Option>
+              <Option value="24h">最近24小时</Option>
+              <Option value="7d">最近7天</Option>
+              <Option value="30d">最近30天</Option>
+              <Option value="all">全部时间</Option>
+            </Select>
+            <Select
               placeholder="分类筛选"
               allowClear
               style={{ width: 120 }}
@@ -296,6 +315,22 @@ export default function TaskAdmin() {
               <Option value="success">成功</Option>
               <Option value="failed">失败</Option>
             </Select>
+            <Select
+              placeholder="排序字段"
+              style={{ width: 120 }}
+              value={sortBy}
+              onChange={(v) => { setSortBy(v || 'created_at'); setPage(1) }}
+            >
+              <Option value="created_at">创建时间</Option>
+              <Option value="updated_at">更新时间</Option>
+              <Option value="duration_ms">耗时</Option>
+            </Select>
+            <Button
+              type={sortOrder === -1 ? 'primary' : 'default'}
+              onClick={() => { setSortOrder(sortOrder === -1 ? 1 : -1); setPage(1) }}
+            >
+              {sortOrder === -1 ? '最新优先' : '最早优先'}
+            </Button>
             <Popconfirm
               title="确定要停止全部进行中的任务吗？"
               description="所有等待中和处理中的任务将被标记为失败"

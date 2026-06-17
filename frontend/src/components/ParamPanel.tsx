@@ -11,6 +11,7 @@ import DynamicForm from './DynamicForm'
 import { getModels, uploadImage } from '@/api'
 import type { ModelItem } from '@/types'
 import { useEffect } from 'react'
+import { type ImageRef, normalizeImageRef, pickCdnUrl } from '@/utils/cdnUrl'
 
 const { TextArea } = Input
 
@@ -20,13 +21,15 @@ export default function ParamPanel() {
   const [searchText, setSearchText] = useState('')
   const [loadingModels, setLoadingModels] = useState(false)
   const [uploading, setUploading] = useState(false)
-  const [uploadImages, setUploadImages] = useState<{ url: string }[]>(
-    params.images || []
+  const [uploadImages, setUploadImages] = useState<ImageRef[]>(
+    (params.images || [])
+      .map((img: any) => normalizeImageRef(img))
+      .filter((ref): ref is ImageRef => ref !== null),
   )
 
-  const setImages = (images: { url: string }[]) => {
+  const setImages = (images: ImageRef[]) => {
     setUploadImages(images)
-    updateParam('images', images)
+    updateParam('images', images.map((img) => img.cdn_url))
   }
 
   const loadModels = async (autoSelect = false) => {
@@ -53,8 +56,10 @@ export default function ParamPanel() {
   }, [activeCategory])
 
   useEffect(() => {
-    const categoryImages = params.images || []
-    if (JSON.stringify(categoryImages) !== JSON.stringify(uploadImages)) {
+    const categoryImages = (params.images || [])
+      .map((img: any) => normalizeImageRef(img))
+      .filter((ref): ref is ImageRef => ref !== null)
+    if (JSON.stringify(categoryImages.map((i) => i.cdn_url)) !== JSON.stringify(uploadImages.map((i) => i.cdn_url))) {
       setUploadImages(categoryImages)
     }
   }, [])
@@ -79,8 +84,13 @@ export default function ParamPanel() {
       try {
         const res = await uploadImage(file)
         if (res.code === 'success' && res.data) {
-          setImages([...uploadImages, { url: res.data.url }])
-          message.success('上传成功')
+          try {
+            const cdnUrl = pickCdnUrl(res.data)
+            setImages([...uploadImages, { cdn_url: cdnUrl }])
+            message.success('上传成功')
+          } catch {
+            message.error('上传成功但未获得有效 CDN 地址，请检查存储配置')
+          }
         } else {
           message.error('上传失败')
         }
@@ -124,7 +134,7 @@ export default function ParamPanel() {
             }}
           >
             <Image
-              src={img.url}
+              src={img.cdn_url}
               alt="上传图片"
               width="100%"
               height={70}

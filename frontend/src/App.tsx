@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { BrowserRouter, Routes, Route, Link, useLocation, Navigate } from 'react-router-dom'
 import { useGenerationStore, validateProcessingTasks, syncTasksFromBackend } from './store/generation'
-import { Layout, Menu, ConfigProvider, Button, Dropdown } from 'antd'
+import { Layout, Menu, ConfigProvider, Button, Dropdown, Avatar, Modal, Form, Input } from 'antd'
 import type { MenuProps } from 'antd'
 import {
   FileTextOutlined,
@@ -17,6 +17,7 @@ import {
   MessageOutlined,
   UserOutlined,
   LogoutOutlined,
+  EditOutlined,
 } from '@ant-design/icons'
 import Workspace from './pages/Workspace'
 import AssetManager from './pages/AssetManager'
@@ -158,6 +159,52 @@ function AppContent() {
   }
 
   const userInfo = getUserInfo()
+  const [editModalVisible, setEditModalVisible] = useState(false)
+  const [form] = Form.useForm()
+  const [avatarFile, setAvatarFile] = useState<File | null>(null)
+
+  // 打开编辑模态框
+  const handleOpenEditModal = () => {
+    if (userInfo) {
+      form.setFieldsValue({
+        nickname: userInfo.nickname || '',
+      })
+      setAvatarFile(null)
+      setEditModalVisible(true)
+    }
+  }
+
+  // 保存用户信息
+  const handleSaveUserInfo = async () => {
+    try {
+      const values = form.getFieldsValue()
+      const updatedUser = { ...userInfo!, nickname: values.nickname }
+      
+      // 如果有头像文件，这里可以添加头像上传逻辑
+      if (avatarFile) {
+        // 简单处理：模拟上传，实际项目中应该调用上传接口
+        console.log('上传头像:', avatarFile)
+      }
+      
+      // 保存到 localStorage
+      localStorage.setItem('user', JSON.stringify(updatedUser))
+      message.success('保存成功')
+      setEditModalVisible(false)
+      
+      // 刷新页面以显示更新后的信息
+      window.location.reload()
+    } catch (e) {
+      message.error('保存失败')
+    }
+  }
+
+  // 处理头像上传
+  const handleAvatarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (file) {
+      setAvatarFile(file)
+    }
+  }
 
   return (
     <Layout style={{ height: '100vh', overflow: 'hidden' }}>
@@ -189,6 +236,12 @@ function AppContent() {
             menu={{
               items: [
                 {
+                  key: 'edit',
+                  icon: <EditOutlined />,
+                  label: '编辑资料',
+                  onClick: handleOpenEditModal,
+                },
+                {
                   key: 'logout',
                   icon: <LogoutOutlined />,
                   label: '登出',
@@ -197,13 +250,63 @@ function AppContent() {
               ],
             }}
           >
-            <Button type="text" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <UserOutlined />
-              <span>{userInfo.nickname || userInfo.username}</span>
-            </Button>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', cursor: 'pointer' }}>
+              <Avatar size={32} icon={<UserOutlined />} />
+              <div style={{ textAlign: 'left' }}>
+                <div style={{ fontSize: 14, fontWeight: 500, color: '#333' }}>{userInfo.nickname || userInfo.username}</div>
+                <div style={{ fontSize: 12, color: '#999' }}>{userInfo.username}</div>
+              </div>
+            </div>
           </Dropdown>
         )}
       </Header>
+
+      {/* 编辑用户信息模态框 */}
+      <Modal
+        title="编辑个人资料"
+        visible={editModalVisible}
+        onCancel={() => setEditModalVisible(false)}
+        onOk={handleSaveUserInfo}
+        okText="保存"
+        cancelText="取消"
+      >
+        <Form form={form} layout="vertical">
+          <Form.Item label="头像">
+            <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+              <Avatar size={64} icon={<UserOutlined />} />
+              <div>
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={handleAvatarChange}
+                  style={{ display: 'none' }}
+                  id="avatar-upload"
+                />
+                <label htmlFor="avatar-upload">
+                  <Button size="small" type="primary">
+                    选择图片
+                  </Button>
+                </label>
+                {avatarFile && (
+                  <div style={{ marginTop: 8, fontSize: 12, color: '#666' }}>
+                    已选择: {avatarFile.name}
+                  </div>
+                )}
+              </div>
+            </div>
+          </Form.Item>
+          <Form.Item 
+            label="昵称" 
+            name="nickname"
+            rules={[{ required: true, message: '请输入昵称' }]}
+          >
+            <Input placeholder="请输入昵称" />
+          </Form.Item>
+          <Form.Item label="用户名">
+            <Input disabled value={userInfo?.username} />
+          </Form.Item>
+        </Form>
+      </Modal>
 
       <Layout style={{ height: 'calc(100vh - 64px)', overflow: 'hidden' }}>
         <Sider

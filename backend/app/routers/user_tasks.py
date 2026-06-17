@@ -100,8 +100,8 @@ async def get_task_status(task_id: str):
 
 
 @router.get("/session/{session_id}")
-async def get_session_tasks(session_id: str):
-    tasks = await get_task_service().list_by_session(session_id)
+async def get_session_tasks(session_id: str, category: str = None, time_range: int = None):
+    tasks = await get_task_service().list_by_session(session_id, category, time_range)
     return success(tasks)
 
 
@@ -112,9 +112,20 @@ async def list_tasks(
     session_id: str = None,
     user_id: str = None,
     category: str = None,
-    status: str = None
+    status: str = None,
+    time_range: str = "6h"  # 时间范围：1h, 6h, 24h, 7d, 30d, all
 ):
-    """获取用户任务列表（用于前端同步）"""
+    """获取用户任务列表（用于前端同步）
+    
+    Args:
+        time_range: 时间范围筛选，默认最近6小时
+            - 1h: 最近1小时
+            - 6h: 最近6小时（默认）
+            - 24h: 最近24小时
+            - 7d: 最近7天
+            - 30d: 最近30天
+            - all: 全部时间
+    """
     try:
         tasks, total = await get_task_service().list(
             page=page,
@@ -122,7 +133,8 @@ async def list_tasks(
             session_id=session_id,
             user_id=user_id,
             category=category,
-            status=status
+            status=status,
+            time_range=time_range
         )
         return success({
             "data": tasks,
@@ -154,6 +166,13 @@ async def generate(data: TaskCreate):
             return error("model_not_found", f"模型不存在: {data.model_code}")
         if model.get("status") != "online":
             return error("model_offline", f"模型已下架")
+
+        if data.category in ("image", "video", "text"):
+            from app.core.cdn import validate_reference_images
+            try:
+                validate_reference_images(data.params)
+            except ValueError as ve:
+                return error("validation_error", str(ve))
 
         logger.info(f"[GENERATE] 创建任务...")
         task = await get_task_service().create(
@@ -263,7 +282,14 @@ async def retry_task(task_id: str):
             return error("invalid_status", "只有失败的任务才能重试")
         
         logger.info(f"[RETRY] 重试任务: task_id={task_id}, model_code={task['model_code']}")
-        
+
+        if task["category"] in ("image", "video", "text"):
+            from app.core.cdn import validate_reference_images
+            try:
+                validate_reference_images(task["params"])
+            except ValueError as ve:
+                return error("validation_error", str(ve))
+
         # 使用原参数重新创建任务
         new_task = await get_task_service().create(
             model_code=task["model_code"],

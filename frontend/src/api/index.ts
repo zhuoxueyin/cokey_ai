@@ -8,6 +8,9 @@ export interface PaginatedParams {
   status?: string
   session_id?: string
   model_code?: string
+  sort_by?: string
+  sort_order?: number
+  time_range?: string  // 时间范围：1h, 6h, 24h, 7d, 30d, all
 }
 
 export const getModels = (category?: string): Promise<ApiResponse<ModelItem[]>> => {
@@ -22,8 +25,11 @@ export const getModelDetail = (model_code: string): Promise<ApiResponse<ModelIte
   return request.get(`/models/${model_code}`)
 }
 
-export const getSessionTasks = (session_id: string): Promise<ApiResponse<TaskItem[]>> => {
-  return request.get(`/tasks/session/${session_id}`)
+export const getSessionTasks = (session_id: string, category?: string, time_range?: number): Promise<ApiResponse<TaskItem[]>> => {
+  const params: Record<string, any> = {}
+  if (category && category !== 'all') params.category = category
+  if (time_range !== undefined) params.time_range = time_range
+  return request.get(`/tasks/session/${session_id}`, { params })
 }
 
 export const generate = (params: {
@@ -68,6 +74,7 @@ export const listTasks = (params?: {
   user_id?: string
   category?: string
   status?: string
+  time_range?: string  // 时间范围：1h, 6h, 24h, 7d, 30d, all（默认6h）
 }): Promise<PaginatedResponse<TaskItem>> => {
   return request.get('/tasks', { params })
 }

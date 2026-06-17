@@ -94,14 +94,66 @@ export interface GenerateRequest {
   params: Record<string, any>
 }
 
+export interface ParamMapping {
+  source: string
+  target: string
+  default?: any
+  transform?: 'first_image' | 'image_list' | 'int' | 'float' | 'str' | 'json' | 'cdn_url'
+}
+
+export interface ResponseMapping {
+  source: string
+  target?: string
+  content_type: 'text' | 'image' | 'video' | 'audio'
+}
+
+/**
+ * Body 入参定义（新格式，推荐使用）
+ *
+ * value_type:
+ *   - 'fixed': 固定值，由配置者填写
+ *   - 'dynamic': 动态参数，由前端/业务层传入。value 填写业务层字段名
+ *   - 'image': 图片类型，从业务传入的 images 中获取，自动 CDN 化
+ */
+export interface BodyParam {
+  key: string
+  value_type: 'fixed' | 'dynamic' | 'image'
+  value: string
+  description?: string
+}
+
+export interface EndpointConfig {
+  type: string
+  endpoint: string
+  method: string
+  description?: string
+
+  // —— 新配置方式（推荐）——
+  content_type?: string           // Content-Type，默认 application/json
+  headers?: Record<string, string> // 自定义 headers，Authorization 由系统自动处理
+  body_params?: BodyParam[]       // Body 入参表（优先于 params_template）
+
+  // —— 旧配置方式（保持兼容）——
+  params_template?: Record<string, any>
+  param_mappings?: ParamMapping[]
+  required_params?: string[]
+  default_params?: Record<string, any>
+
+  // 响应配置（系统自动识别，无需手动配置）
+  response_mappings?: ResponseMapping[]
+  response_extract_path?: string
+}
+
 export interface ChannelItem {
   id: string
   channel_code: string
   channel_name: string
   channel_type: 'aggregator' | 'direct'
+  channel_provider?: 'weelinking' | 'apiyi' | 'volcengine' | null
   base_url: string
   auth_config: ChannelAuthConfig
   api_config: ChannelApiConfig
+  endpoints?: EndpointConfig[]
   retry_config: ChannelRetryConfig
   rate_limit_config: ChannelRateLimitConfig
   status: 'active' | 'inactive'
@@ -117,7 +169,10 @@ export interface ChannelAuthConfig {
 export interface ChannelApiConfig {
   text_path?: string
   image_path?: string
+  image_edits_path?: string
   video_path?: string
+  video_image_path?: string
+  audio_path?: string
   text_stream?: boolean
 }
 

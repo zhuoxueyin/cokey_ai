@@ -18,6 +18,74 @@ class ModelGateway:
         self.channel_service = get_channel_service()
         self.model_service = get_model_service()
 
+    def _has_chat_endpoint(self, channel: Dict[str, Any]) -> bool:
+        """
+        检查渠道是否配置了对话式端点
+        
+        :param channel: 渠道配置
+        :return: 是否有chat端点
+        """
+        endpoints = channel.get("endpoints", [])
+        for endpoint in endpoints:
+            if endpoint.get("type") == "chat":
+                return True
+        return False
+
+    def _determine_endpoint_type(self, category: str, params: Dict[str, Any], channel: Optional[Dict[str, Any]] = None) -> str:
+        """
+        根据入参自动确定端点类型
+        
+        优先级规则：
+        1. 如果渠道配置了对话式(chat)端点，所有任务都优先使用chat端点
+        2. 否则根据创作类型和是否有参考图确定端点类型
+        
+        图片创作：
+        - 无参考图 → 文生图 (image)
+        - 有参考图 → 图生图 (image_edits)
+        
+        视频创作：
+        - 无参考图 → 文生视频 (video)
+        - 有参考图 → 图生视频 (video_image)
+        
+        :param category: 创作类型 (text/image/video)
+        :param params: 请求参数
+        :param channel: 渠道配置（可选）
+        :return: 端点类型
+        """
+        # 优先检查是否配置了对话式端点
+        if channel and self._has_chat_endpoint(channel):
+            logger.info(f"[路由] 渠道配置了对话式端点，优先使用 chat")
+            return "chat"
+        
+        # 检查是否有参考图
+        has_reference = False
+        
+        # 检查多种可能的参考图参数格式
+        if params.get("image"):
+            img_val = params["image"]
+            if isinstance(img_val, list) and len(img_val) > 0:
+                has_reference = True
+            elif isinstance(img_val, str) and img_val.strip():
+                has_reference = True
+        elif params.get("images"):
+            imgs_val = params["images"]
+            if isinstance(imgs_val, list) and len(imgs_val) > 0:
+                has_reference = True
+        
+        # 根据类型和是否有参考图确定端点类型
+        if category == "image":
+            if has_reference:
+                return "image_edits"
+            else:
+                return "image"
+        elif category == "video":
+            if has_reference:
+                return "video_image"
+            else:
+                return "video"
+        else:
+            return category
+
     def _validate_params(self, params: Dict[str, Any], param_schema: Dict[str, Any]) -> Tuple[bool, str]:
         fields = param_schema.get("fields", [])
         for field in fields:
@@ -114,8 +182,14 @@ class ModelGateway:
 
         import json
         logger.info(f"[{trace_id}] 选中渠道: {channel['channel_code']}, 模型ID: {channel_model_id}")
+        # 根据入参和渠道配置确定实际端点类型
+        endpoint_type = self._determine_endpoint_type(category, params, channel)
+        has_reference = params.get('image') or params.get('images')
+        logger.info(f"[{trace_id}] 自动路由: category={category} → endpoint_type={endpoint_type} (has_reference={has_reference}, has_chat_endpoint={self._has_chat_endpoint(channel)})")
+
         logger.info(f"[{trace_id}] ═══════ 网关调用完整入参 ═══════")
         logger.info(f"[{trace_id}] category={category}")
+        logger.info(f"[{trace_id}] endpoint_type={endpoint_type}")
         logger.info(f"[{trace_id}] channel_model_id={channel_model_id}")
         logger.info(f"[{trace_id}] base_url={channel.get('base_url')}")
         logger.info(f"[{trace_id}] api_key_last_8=...{api_key[-8:] if api_key else 'NULL'}")
@@ -125,21 +199,29 @@ class ModelGateway:
             logger.info(f"[{trace_id}] params_raw={params}")
         logger.info(f"[{trace_id}] ════════════════════════════════")
 
-        # 记录渠道请求参数
+        # 记录渠道请求参数（基础信息）
         channel_request = {
             "category": category,
+            "endpoint_type": endpoint_type,
             "channel_model_id": channel_model_id,
-            "params": params,
+            "channel_code": channel["channel_code"],
+            "base_url": channel.get("base_url", ""),
+            "original_params": params,
             "timestamp": datetime.now().isoformat()
         }
         
         result = await adapter.execute(
             category=category,
+            endpoint_type=endpoint_type,
             model_config=model_config,
             params=params,
             channel_model_id=channel_model_id,
             api_key=api_key
         )
+        
+        # 获取适配器记录的HTTP请求信息（实际发送给渠道的请求）
+        if hasattr(adapter, '_http_request_info') and adapter._http_request_info:
+            channel_request["http_request"] = adapter._http_request_info
         
         # 记录渠道响应（视频类型包含创建和查询两次响应）
         channel_response = {}
@@ -175,7 +257,7 @@ class ModelGateway:
         if not result.get("success"):
             error_code = result.get("error_code", "internal_error")
             logger.info(f"[{trace_id}] 主渠道失败, 尝试切换备用渠道, code={error_code}")
-            fallback_result = await self._try_fallback_channels(model_config, category, params, trace_id, exclude_channel=channel["channel_code"])
+            fallback_result = await self._try_fallback_channels(model_config, category, endpoint_type, params, trace_id, exclude_channel=channel["channel_code"])
             if fallback_result and fallback_result.get("success"):
                 return fallback_result
 
@@ -192,7 +274,7 @@ class ModelGateway:
         return result
 
     async def _try_fallback_channels(self, model_config: Dict[str, Any], category: str,
-                                      params: Dict[str, Any], trace_id: str,
+                                      endpoint_type: str, params: Dict[str, Any], trace_id: str,
                                       exclude_channel: str) -> Optional[Dict[str, Any]]:
         bindings = model_config.get("channel_bindings", [])
         other_bindings = [b for b in bindings
@@ -217,6 +299,7 @@ class ModelGateway:
                 logger.info(f"[{trace_id}] 切换到备用渠道: {channel['channel_code']}")
                 result = await adapter.execute(
                     category=category,
+                    endpoint_type=endpoint_type,
                     model_config=model_config,
                     params=params,
                     channel_model_id=channel_model_id,

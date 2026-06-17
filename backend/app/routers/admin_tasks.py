@@ -14,11 +14,16 @@ async def list_tasks(
     session_id: Optional[str] = Query(None),
     model_code: Optional[str] = Query(None),
     category: Optional[str] = Query(None),
-    status: Optional[str] = Query(None)
+    status: Optional[str] = Query(None),
+    time_range: str = Query("6h"),  # 时间范围：1h, 6h, 24h, 7d, 30d, all
+    sort_by: str = Query("created_at"),
+    sort_order: int = Query(-1, ge=-1, le=1)
 ):
     docs, total = await get_task_service().list(
         page=page, page_size=page_size, session_id=session_id,
-        model_code=model_code, category=category, status=status
+        model_code=model_code, category=category, status=status,
+        time_range=time_range,
+        sort_by=sort_by, sort_order=sort_order
     )
     return paginated(docs, total, page, page_size)
 

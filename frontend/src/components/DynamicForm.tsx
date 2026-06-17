@@ -23,6 +23,7 @@ import type { UploadProps } from 'antd'
 import { useGenerationStore } from '@/store/generation'
 import { generate, uploadImage } from '@/api'
 import type { ParamField } from '@/types'
+import { extractCdnUrls, isCdnUrl, pickCdnUrl } from '@/utils/cdnUrl'
 
 const { TextArea } = Input
 
@@ -128,8 +129,13 @@ export default function DynamicForm() {
             try {
               const res = await uploadImage(file as File)
               if (res.code === 'success' && res.data) {
-                updateParam(name, res.data.url)
-                message.success('上传成功')
+                try {
+                  const cdnUrl = pickCdnUrl(res.data)
+                  updateParam(name, cdnUrl)
+                  message.success('上传成功')
+                } catch {
+                  message.error('上传成功但未获得有效 CDN 地址，请检查存储配置')
+                }
               }
             } catch (e) {
               console.error(e)
@@ -144,9 +150,14 @@ export default function DynamicForm() {
             <Upload {...uploadProps}>
               <Button icon={<UploadOutlined />}>上传图片</Button>
             </Upload>
-            {value && (
+            {value && isCdnUrl(String(value)) && (
               <span style={{ fontSize: 12, color: '#888' }}>
-                已上传
+                已上传（CDN）
+              </span>
+            )}
+            {value && !isCdnUrl(String(value)) && (
+              <span style={{ fontSize: 12, color: '#ff4d4f' }}>
+                地址无效，请重新上传
               </span>
             )}
           </Space>
@@ -179,6 +190,17 @@ export default function DynamicForm() {
       return
     }
 
+    let submitParams: Record<string, any>
+    try {
+      submitParams = { ...params }
+      if (Array.isArray(submitParams.images) && submitParams.images.length > 0) {
+        submitParams.images = extractCdnUrls(submitParams.images)
+      }
+    } catch (e: any) {
+      message.error(e?.message || '参考图须为已上传的 CDN 地址')
+      return
+    }
+
     setSubmitting(true)
     setIsGenerating(true)
 
@@ -190,7 +212,7 @@ export default function DynamicForm() {
       model_code: currentModel.model_code,
       category: activeCategory,
       status: 'processing',
-      params: { ...params },
+      params: submitParams,
       params_summary: params.prompt || params.positive_prompt || '生成中...',
       created_at: new Date().toISOString(),
     }
@@ -202,7 +224,7 @@ export default function DynamicForm() {
         category: activeCategory,
         session_id: sessionId ?? undefined,
         user_id: useGenerationStore.getState().userId ?? undefined,
-        params: { ...params },
+        params: submitParams,
       })
 
       if (res.code === 'success' && res.data) {

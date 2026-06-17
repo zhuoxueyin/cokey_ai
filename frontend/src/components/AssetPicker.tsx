@@ -3,6 +3,7 @@ import { Modal, Tabs, Upload, Grid, Button, Space, Image, Empty, message, Pagina
 import { UploadOutlined, PictureOutlined, SearchOutlined, CheckOutlined } from '@ant-design/icons'
 import { listAssets, uploadAsset } from '@/api'
 import type { AssetItem } from '@/types'
+import { isAssetCdnReady, pickCdnUrl } from '@/utils/cdnUrl'
 
 interface AssetPickerProps {
   open: boolean
@@ -68,6 +69,11 @@ export default function AssetPicker({ open, onClose, onSelect, multiple = true, 
       return
     }
     const selected = items.filter(it => selectedIds.includes(it.id))
+    const invalid = selected.filter((a) => !isAssetCdnReady(a))
+    if (invalid.length > 0) {
+      message.error('所选资源含非 CDN 地址，无法使用')
+      return
+    }
     onSelect(selected)
     setSelectedIds([])
     onClose()
@@ -78,9 +84,14 @@ export default function AssetPicker({ open, onClose, onSelect, multiple = true, 
       try {
         const res = await uploadAsset(file, { category, source_type: 'upload' })
         if (res.code === 'success' && res.data) {
-          message.success(`上传成功: ${file.name}`)
-          setItems([res.data, ...items])
-          setTotal(total + 1)
+          try {
+            pickCdnUrl(res.data)
+            message.success(`上传成功: ${file.name}`)
+            setItems([res.data, ...items])
+            setTotal(total + 1)
+          } catch {
+            message.error('上传成功但未获得有效 CDN 地址，请检查存储配置')
+          }
         }
       } catch (e) {
         message.error(`上传失败: ${file.name}`)
