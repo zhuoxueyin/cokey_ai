@@ -96,12 +96,12 @@ const GPT_IMAGE_2_PRESETS: ImageSizePreset[] = [
   preset('4:5', '1k', 1024, 1280),
   preset('4:5', '2k', 2048, 2560),
   preset('4:5', '4k', 2576, 3216),
-  // 16:9
-  preset('16:9', '1k', 1536, 864),
+  // 16:9 — Weelinking demo 兼容：1536x1024
+  preset('16:9', '1k', 1536, 1024),
   preset('16:9', '2k', 2048, 1152),
   preset('16:9', '4k', 3840, 2160),
-  // 9:16
-  preset('9:16', '1k', 864, 1536),
+  // 9:16 — Weelinking demo 兼容：1024x1536
+  preset('9:16', '1k', 1024, 1536),
   preset('9:16', '2k', 1152, 2048),
   preset('9:16', '4k', 2160, 3840),
   // 2:1
@@ -290,20 +290,16 @@ export const CLARITY_HINTS: Record<ImageClarity, string> = {
   '4k': '印刷/大屏（实验性）',
 }
 
-/** 构建提交给后端的尺寸参数 */
+/** 构建提交给后端的尺寸参数（aspect_ratio/resolution 供后端校验，渠道侧只用 size） */
 export function buildImageSizeParams(
   spec: ImageModelSizeSpec,
   ratio: AspectRatioKey,
   clarity: ImageClarity,
 ): Record<string, string> {
   const p = resolveOfficialSize(spec, ratio, clarity)
-  const params: Record<string, string> = {
+  return {
     size: p.size,
     aspect_ratio: p.aspect_ratio,
     resolution: p.resolution,
   }
-  if (spec.specId === 'gpt-image-2') {
-    params.resolution = p.resolution
-  }
-  return params
 }

@@ -7,8 +7,8 @@ from app.core.logging_config import get_logger
 from app.core.redis_client import init_redis
 
 from app.routers import health, assets, prompts
-from app.routers import admin_channels, admin_models, admin_tasks, admin_users
-from app.routers import user_models, user_tasks, user_sessions, user_upload, auth, user
+from app.routers import admin_channels, admin_models, admin_tasks, admin_trace_logs, admin_users, admin_protocol_profiles
+from app.routers import user_models, user_tasks, user_sessions, user_upload, auth, user, user_canvas, user_download
 
 logger = get_logger()
 
@@ -30,8 +30,10 @@ api_prefix = "/api"
 
 app.include_router(health.router, prefix=api_prefix)
 app.include_router(admin_channels.router, prefix=api_prefix)
+app.include_router(admin_protocol_profiles.router, prefix=api_prefix)
 app.include_router(admin_models.router, prefix=api_prefix)
 app.include_router(admin_tasks.router, prefix=api_prefix)
+app.include_router(admin_trace_logs.router, prefix=api_prefix)
 app.include_router(user_models.router, prefix=api_prefix)
 app.include_router(user_tasks.router, prefix=api_prefix)
 app.include_router(user_sessions.router, prefix=api_prefix)
@@ -40,6 +42,8 @@ app.include_router(assets.router, prefix=api_prefix)
 app.include_router(prompts.router, prefix=api_prefix)
 app.include_router(auth.router, prefix=api_prefix)
 app.include_router(user.router, prefix=api_prefix)
+app.include_router(user_canvas.router, prefix=api_prefix)
+app.include_router(user_download.router, prefix=api_prefix)
 app.include_router(admin_users.router, prefix=api_prefix)
 
 
@@ -49,6 +53,8 @@ async def startup_event():
     try:
         await init_mongodb()
         logger.info("MongoDB 初始化完成")
+        from app.services.protocol_profile_service import get_protocol_profile_service
+        await get_protocol_profile_service().ensure_builtin_seeded()
     except Exception as e:
         logger.error(f"MongoDB 初始化失败: {e}")
 

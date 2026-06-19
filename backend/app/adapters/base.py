@@ -37,6 +37,59 @@ class BaseChannelAdapter(ABC):
         })
         # 记录HTTP请求信息
         self._http_request_info: Optional[Dict[str, Any]] = None
+        self._task_id: Optional[str] = None
+        self._pending_channel_meta: Optional[Dict[str, Any]] = None
+        self._outgoing_request_logged: bool = False
+
+    async def _persist_external_task_id(self, external_task_id: str) -> None:
+        """创建异步任务后立即落库外部 ID，便于轮询中断后恢复"""
+        if not self._task_id or not external_task_id:
+            return
+        try:
+            from app.services.task_service import get_task_service
+
+            await get_task_service().update_status(
+                self._task_id,
+                "processing",
+                external_task_id=external_task_id,
+            )
+        except Exception as e:
+            logger.warning(f"[{self.trace_id}] 写入 external_task_id 失败: {e}")
+
+    async def _flush_outgoing_request_log(self) -> None:
+        """在 HTTP 发出前将渠道入参写入链路日志与任务（不等待响应）"""
+        if self._outgoing_request_logged or not self._http_request_info:
+            return
+        self._outgoing_request_logged = True
+
+        channel_request: Dict[str, Any] = {
+            **(self._pending_channel_meta or {}),
+            "channel_code": self.channel_code,
+            "http_request": self._http_request_info,
+        }
+
+        try:
+            from app.services.trace_log_service import get_trace_log_service
+
+            await get_trace_log_service().append_step(
+                self.trace_id,
+                "channel_http_request",
+                channel_request,
+            )
+        except Exception as e:
+            logger.warning(f"[{self.trace_id}] 写入链路日志入参失败: {e}")
+
+        if self._task_id:
+            try:
+                from app.services.task_service import get_task_service
+
+                await get_task_service().patch_channel_request(
+                    self._task_id,
+                    channel_request,
+                    channel_code=self.channel_code,
+                )
+            except Exception as e:
+                logger.warning(f"[{self.trace_id}] 写入任务渠道入参失败: {e}")
 
     @abstractmethod
     async def convert_params(self, model_config: Dict[str, Any], params: Dict[str, Any], endpoint_config: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:

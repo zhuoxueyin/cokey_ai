@@ -26,6 +26,7 @@ import {
 import { useGenerationStore } from '@/store/generation'
 import { generate } from '@/api'
 import type { TaskItem } from '@/types'
+import { downloadRemoteFile } from '@/utils/download'
 
 export default function ChatArea({ tasks: tasksProp }: { tasks?: TaskItem[] }) {
   const { currentModel, activeCategory, sessionId, setSessionId } = useGenerationStore()
@@ -42,6 +43,7 @@ export default function ChatArea({ tasks: tasksProp }: { tasks?: TaskItem[] }) {
   // 图片预览状态
   const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null)
   const [previewImageName, setPreviewImageName] = useState<string>('')
+  const [downloading, setDownloading] = useState(false)
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -114,26 +116,32 @@ export default function ChatArea({ tasks: tasksProp }: { tasks?: TaskItem[] }) {
     })
   }
 
-  const handleDownload = (url: string, filename?: string) => {
-    const link = document.createElement('a')
-    link.href = url
-    link.download = filename || `aigc_${Date.now()}`
-    link.rel = 'noopener noreferrer'
-    document.body.appendChild(link)
-    link.click()
-    document.body.removeChild(link)
-  }
-
-  // 图片预览
-  const handlePreview = (url: string, name?: string) => {
-    setPreviewImageUrl(url)
-    setPreviewImageName(name || '图片预览')
+  const handleDownload = async (url: string, filename?: string) => {
+    setDownloading(true)
+    const hide = message.loading('正在下载...', 0)
+    try {
+      await downloadRemoteFile(url, filename)
+      message.success('下载成功')
+    } catch {
+      window.open(url, '_blank', 'noopener,noreferrer')
+      message.warning('无法直接保存，已在新标签页打开，请右键另存为')
+    } finally {
+      hide()
+      setDownloading(false)
+    }
   }
 
   const handleDownloadAll = (images: { url: string }[]) => {
     images.forEach((img, idx) => {
-      setTimeout(() => handleDownload(img.url, `image_${idx + 1}.png`), idx * 500)
+      setTimeout(() => {
+        void handleDownload(img.url, `image_${idx + 1}.png`)
+      }, idx * 600)
     })
+  }
+
+  const handlePreview = (url: string, name?: string) => {
+    setPreviewImageUrl(url)
+    setPreviewImageName(name || '图片预览')
   }
 
   const handleEdit = (task: TaskItem) => {
@@ -433,7 +441,11 @@ export default function ChatArea({ tasks: tasksProp }: { tasks?: TaskItem[] }) {
         onCancel={() => setPreviewImageUrl(null)}
         footer={
           <Space>
-            <Button icon={<DownloadOutlined />} onClick={() => previewImageUrl && handleDownload(previewImageUrl, previewImageName)}>
+            <Button
+              icon={<DownloadOutlined />}
+              loading={downloading}
+              onClick={() => previewImageUrl && handleDownload(previewImageUrl, previewImageName)}
+            >
               下载
             </Button>
             <Button onClick={() => setPreviewImageUrl(null)}>关闭</Button>

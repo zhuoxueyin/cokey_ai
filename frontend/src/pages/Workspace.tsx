@@ -1,16 +1,37 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { Button, Dropdown, message, Tooltip } from 'antd'
+import type { MenuProps } from 'antd'
 import {
   ClockCircleOutlined,
   DeleteOutlined,
   FilterOutlined,
   ReloadOutlined,
 } from '@ant-design/icons'
-import { getModels, getSessionTasks } from '@/api'
+import { getModels, getSessionTasks, listTasks } from '@/api'
 import { useGenerationStore } from '@/store/generation'
 import type { ModelItem, TaskItem } from '@/types'
 import ChatArea from '@/components/ChatArea'
 import ComposerArea from '@/components/ComposerArea'
+import { CanvasProjectEntry } from '@/pages/CanvasHome'
+
+type FilterType = 'image' | 'video' | 'text' | 'all'
+
+const labelMap: Record<string, string> = {
+  image: '图片',
+  video: '视频',
+  text: '文本',
+}
+
+/** 工作台时间（小时）→ listTasks 的 time_range 字符串 */
+function hoursToListTimeRange(hours: number): string {
+  if (hours <= 0) return 'all'
+  if (hours <= 0.5) return '1h'
+  if (hours <= 1) return '1h'
+  if (hours <= 6) return '6h'
+  if (hours <= 24) return '24h'
+  if (hours <= 168) return '7d'
+  return '30d'
+}
 
 export default function Workspace() {
   const {
@@ -18,15 +39,17 @@ export default function Workspace() {
     currentModel,
     tasks,
     sessionId,
+    userId,
     setModel,
     setAvailableModels,
     setTasks,
   } = useGenerationStore()
-  const [filterType, setFilterType] = useState<'image' | 'video' | 'text' | 'all'>('all')
+  const [filterType, setFilterType] = useState<FilterType>('all')
   const [timeRange, setTimeRange] = useState<number>(24)
   const [timeRangeLabel, setTimeRangeLabel] = useState('最近 1 天')
   const [isFilterApplied, setIsFilterApplied] = useState(false)
-  const loadedSessionIds = useRef<Set<string>>(new Set())
+  const [filterLoading, setFilterLoading] = useState(false)
+  const loadedCacheKey = useRef<string | null>(null)
 
   const loadModels = async (category: string) => {
     try {
@@ -47,50 +70,87 @@ export default function Workspace() {
     loadModels(activeCategory)
   }, [activeCategory])
 
-  const loadTasksWithFilter = async (forceRefresh = false) => {
-    if (!sessionId) return
-    if (!forceRefresh && loadedSessionIds.current.has(sessionId)) return
+  const loadTasksWithFilter = useCallback(
+    async (
+      forceRefresh = false,
+      overrides?: { type?: FilterType; hours?: number },
+    ) => {
+      const type = overrides?.type ?? filterType
+      const hours = overrides?.hours ?? timeRange
+      const effectiveCategory = type === 'all' ? undefined : type
+      const cacheKey = `${sessionId ?? ''}|${userId ?? ''}|${type}|${hours}`
 
-    try {
-      const effectiveCategory = filterType === 'all' ? undefined : filterType
-      const effectiveTimeRange = timeRange === 0 ? undefined : timeRange
+      if (!forceRefresh && loadedCacheKey.current === cacheKey) return
 
-      const res = await getSessionTasks(sessionId, effectiveCategory, effectiveTimeRange)
-      if (res.code === 'success' && res.data) {
-        setTasks(res.data)
-        loadedSessionIds.current.add(sessionId)
+      setFilterLoading(true)
+      try {
+        let nextTasks: TaskItem[] = []
+
+        // 优先按 session 拉取（创作流同会话）；无 session 时按 user 拉取
+        if (sessionId) {
+          const res = await getSessionTasks(sessionId, effectiveCategory, hours)
+          if (res.code === 'success' && res.data) {
+            nextTasks = res.data
+          }
+        } else if (userId) {
+          const res = await listTasks({
+            page: 1,
+            page_size: 100,
+            user_id: userId,
+            category: effectiveCategory,
+            time_range: hoursToListTimeRange(hours),
+          })
+          if (res.code === 'success' && res.data?.data) {
+            nextTasks = res.data.data as TaskItem[]
+          }
+        } else {
+          const current = useGenerationStore.getState().tasks
+          nextTasks = current.filter((t) => {
+            if (type !== 'all' && t.category !== type) return false
+            if (hours > 0) {
+              const cutoff = Date.now() - hours * 3600 * 1000
+              if (new Date(t.created_at).getTime() < cutoff) return false
+            }
+            return true
+          })
+        }
+
+        setTasks(nextTasks)
+        loadedCacheKey.current = cacheKey
+      } catch (e) {
+        console.error('加载历史任务失败', e)
+        message.error('筛选加载失败')
+      } finally {
+        setFilterLoading(false)
       }
-    } catch (e) {
-      console.error('加载历史任务失败', e)
-    }
-  }
+    },
+    [filterType, timeRange, sessionId, userId, setTasks],
+  )
 
   useEffect(() => {
     loadTasksWithFilter()
-  }, [sessionId])
+  }, [sessionId, userId])
 
-  const handleTypeFilterChange = (type: 'image' | 'video' | 'text' | 'all') => {
+  const handleTypeFilterChange = (type: FilterType) => {
     setFilterType(type)
     setIsFilterApplied(type !== 'all' || timeRange !== 0)
-    loadedSessionIds.current.delete(sessionId!)
-    loadTasksWithFilter(true)
+    loadedCacheKey.current = null
+    loadTasksWithFilter(true, { type, hours: timeRange })
   }
 
   const handleTimeFilterChange = (hours: number, label: string) => {
     setTimeRange(hours)
     setTimeRangeLabel(label)
     setIsFilterApplied(filterType !== 'all' || hours !== 0)
-    loadedSessionIds.current.delete(sessionId!)
-    loadTasksWithFilter(true)
+    loadedCacheKey.current = null
+    loadTasksWithFilter(true, { type: filterType, hours })
   }
 
   const handleClearHistory = () => {
     if (tasks.length === 0) return
     if (confirm('确定清空当前历史记录吗？')) {
       setTasks([])
-      if (sessionId) {
-        loadedSessionIds.current.delete(sessionId)
-      }
+      loadedCacheKey.current = null
       message.success('已清空')
     }
   }
@@ -100,14 +160,33 @@ export default function Workspace() {
     setTimeRange(24)
     setTimeRangeLabel('最近 1 天')
     setIsFilterApplied(false)
-    loadedSessionIds.current.delete(sessionId!)
-    loadTasksWithFilter(true)
+    loadedCacheKey.current = null
+    loadTasksWithFilter(true, { type: 'all', hours: 24 })
   }
 
-  const labelMap: Record<string, string> = {
-    image: '图片',
-    video: '视频',
-    text: '文本',
+  const typeMenuItems: MenuProps['items'] = [
+    { key: 'all', label: '全部类型' },
+    { key: 'image', label: '图片生成' },
+    { key: 'video', label: '视频生成' },
+    { key: 'text', label: '文本创作' },
+  ]
+
+  const timeMenuItems: MenuProps['items'] = [
+    { key: '0.5', label: '最近 30 分钟' },
+    { key: '1', label: '最近 1 小时' },
+    { key: '24', label: '最近 1 天' },
+    { key: '168', label: '最近 1 周' },
+    { key: '720', label: '最近 1 个月' },
+    { key: '0', label: '全部时间' },
+  ]
+
+  const timeLabelByKey: Record<string, string> = {
+    '0.5': '30分钟',
+    '1': '1小时',
+    '24': '1天',
+    '168': '1周',
+    '720': '1月',
+    '0': '全部',
   }
 
   return (
@@ -120,32 +199,29 @@ export default function Workspace() {
             </Tooltip>
           )}
           <Dropdown
+            trigger={['click']}
             menu={{
-              items: [
-                { key: 'all', label: '全部类型', onClick: () => handleTypeFilterChange('all') },
-                { key: 'image', label: '图片生成', onClick: () => handleTypeFilterChange('image') },
-                { key: 'video', label: '视频生成', onClick: () => handleTypeFilterChange('video') },
-                { key: 'text', label: '文本创作', onClick: () => handleTypeFilterChange('text') },
-              ],
+              items: typeMenuItems,
+              selectedKeys: [filterType],
+              onClick: ({ key }) => handleTypeFilterChange(key as FilterType),
             }}
           >
-            <Button type="text" size="small" icon={<FilterOutlined />}>
+            <Button type="text" size="small" icon={<FilterOutlined />} loading={filterLoading}>
               {filterType === 'all' ? '类型' : labelMap[filterType]}
             </Button>
           </Dropdown>
           <Dropdown
+            trigger={['click']}
             menu={{
-              items: [
-                { key: '0.5', label: '最近 30 分钟', onClick: () => handleTimeFilterChange(0.5, '30分钟') },
-                { key: '1', label: '最近 1 小时', onClick: () => handleTimeFilterChange(1, '1小时') },
-                { key: '24', label: '最近 1 天', onClick: () => handleTimeFilterChange(24, '1天') },
-                { key: '168', label: '最近 1 周', onClick: () => handleTimeFilterChange(168, '1周') },
-                { key: '720', label: '最近 1 个月', onClick: () => handleTimeFilterChange(720, '1月') },
-                { key: '0', label: '全部时间', onClick: () => handleTimeFilterChange(0, '全部') },
-              ],
+              items: timeMenuItems,
+              selectedKeys: [String(timeRange)],
+              onClick: ({ key }) => {
+                const hours = Number(key)
+                handleTimeFilterChange(hours, timeLabelByKey[key] ?? `${key}小时`)
+              },
             }}
           >
-            <Button type="text" size="small" icon={<ClockCircleOutlined />}>
+            <Button type="text" size="small" icon={<ClockCircleOutlined />} loading={filterLoading}>
               {timeRangeLabel}
             </Button>
           </Dropdown>
@@ -155,12 +231,15 @@ export default function Workspace() {
         </div>
 
         <div className="workspace-stream-scroll">
+          <div className="workspace-canvas-entry">
+            <CanvasProjectEntry />
+          </div>
           <ChatArea tasks={tasks as TaskItem[]} />
         </div>
-      </div>
 
-      <div className="workspace-composer">
-        <div className="workspace-composer-inner">
+        <div className="workspace-stream-fade" />
+
+        <div className="workspace-composer-float">
           <ComposerArea />
         </div>
       </div>

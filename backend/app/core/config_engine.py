@@ -9,6 +9,7 @@ import re
 from typing import Any, Dict, List, Optional, Union
 
 from app.core.logging_config import get_logger
+from app.core.body_param_resolver import build_body_from_params
 from app.core.cdn import extract_url_from_image_item, require_cdn_url
 
 logger = get_logger()
@@ -60,85 +61,13 @@ class ConfigEngine:
         # 1. body_params 新格式 —— 优先级最高
         body_params = endpoint_config.get("body_params") or []
         if body_params:
-            body: Dict[str, Any] = {}
-            for item in body_params:
-                if not isinstance(item, dict):
-                    continue
-                key = item.get("key", "").strip()
-                if not key:
-                    continue
-                value_type = (item.get("value_type") or "dynamic").lower()
-                raw_value = item.get("value") or ""
-
-                if value_type in ("fixed", "static", "constant"):
-                    # 固定值：尝试智能解析 JSON（对象/数组/数字/布尔），否则按字符串
-                    body[key] = cls._smart_parse_fixed_value(raw_value)
-                elif value_type in ("image", "images", "picture"):
-                    # 图片：从业务参数中获取 images 字段，自动 CDN 化
-                    source_field = raw_value if raw_value else "images"
-                    img_raw = params.get(source_field) or params.get("image")
-                    if img_raw:
-                        if isinstance(img_raw, list):
-                            body[key] = [require_cdn_url(extract_url_from_image_item(x) or str(x), label=f"image[{i}]")
-                                          for i, x in enumerate(img_raw)]
-                        elif isinstance(img_raw, dict):
-                            body[key] = require_cdn_url(extract_url_from_image_item(img_raw) or "", label="image")
-                        else:
-                            body[key] = require_cdn_url(str(img_raw), label="image")
-                else:
-                    # dynamic / 默认：从业务参数中按字段名取值，支持智能转换
-                    source_field = raw_value if raw_value else key
-
-                    # ---- 智能构建 messages 字段（从 prompt + images 转换）----
-                    if key == "messages" and not cls._get_nested_field(params, source_field):
-                        prompt_text = params.get("prompt") or params.get("positive_prompt") or ""
-                        image_list = params.get("images") or params.get("image") or []
-                        has_images = bool(image_list) and (
-                            isinstance(image_list, list) and len(image_list) > 0
-                            or isinstance(image_list, str) and image_list.strip()
-                        )
-
-                        if prompt_text or has_images:
-                            content: Any
-                            if has_images:
-                                # 多模态格式：[{"type":"text","text":"..."}, {"type":"image_url","image_url":{"url":"..."}}]
-                                content = []
-                                if prompt_text:
-                                    content.append({"type": "text", "text": prompt_text})
-
-                                urls_to_process = []
-                                if isinstance(image_list, list):
-                                    urls_to_process = image_list
-                                elif isinstance(image_list, str):
-                                    urls_to_process = [image_list]
-
-                                for idx, img_item in enumerate(urls_to_process):
-                                    img_url = extract_url_from_image_item(img_item) or str(img_item)
-                                    if img_url:
-                                        cdn_url = require_cdn_url(img_url, label=f"messages-image[{idx}]")
-                                        content.append({
-                                            "type": "image_url",
-                                            "image_url": {"url": cdn_url}
-                                        })
-                            else:
-                                # 纯文本格式
-                                content = prompt_text
-
-                            body[key] = [{"role": "user", "content": content}]
-                            continue
-
-                    # ---- 普通字段：按 source_field 直接取值 ----
-                    val = cls._get_nested_field(params, source_field)
-                    if val is not None:
-                        body[key] = val
-                    elif source_field in ("model", "channel_code", "trace_id"):
-                        # 预定义字段兜底
-                        builtin_map = {"model": model_id, "channel_code": channel_code, "trace_id": trace_id}
-                        body[key] = builtin_map.get(source_field, "")
-                    else:
-                        # 取不到值就不写入（让下游自行处理默认值）
-                        continue
-
+            body = build_body_from_params(
+                body_params,
+                params,
+                model_id=model_id,
+                channel_code=channel_code,
+                trace_id=trace_id,
+            )
             logger.info(f"[{trace_id}] body_params 构建完成: {list(body.keys())}")
             return body
 

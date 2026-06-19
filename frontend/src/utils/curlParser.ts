@@ -22,35 +22,40 @@ export interface BodyField {
 }
 
 /**
- * 将 curl body_fields 转换为 body_params 格式
- *
- * 规则:
- *   - type='default'  -> value_type='fixed', value=原 value
- *   - type='dynamic'  -> value_type='dynamic', value=原 name（作为业务层字段名）
- *   - type='image'    -> value_type='image', value=原 name（作为业务层字段名）
+ * 将 curl body_fields 转换为 body_params（新格式：source 与配置分离）
  */
-export function bodyFieldsToBodyParams(fields: BodyField[]): { key: string; value_type: string; value: string; description?: string }[] {
-  return fields.map(f => {
-    let value_type: string = 'dynamic'
-    let value: string = f.name
-
+export function bodyFieldsToBodyParams(fields: BodyField[]): {
+  key: string
+  source: string
+  literal?: string
+  param?: string
+  description?: string
+}[] {
+  return fields.map((f) => {
     if (f.type === 'default') {
-      value_type = 'fixed'
-      value = f.value
-    } else if (f.type === 'image') {
-      value_type = 'image'
-      value = f.name || 'images'
-    } else {
-      // dynamic: 前端字段名 = f.name
-      value_type = 'dynamic'
-      value = f.name
+      return {
+        key: f.name,
+        source: 'literal',
+        literal: f.value,
+        description: 'curl 示例固定值',
+      }
     }
-
+    if (f.type === 'image') {
+      return {
+        key: f.name,
+        source: 'image_urls',
+        param: f.name || 'images',
+        description: '图片 URL 列表',
+      }
+    }
+    if (f.name === 'messages') {
+      return { key: f.name, source: 'chat_messages', description: '自动组装 prompt+images' }
+    }
     return {
       key: f.name,
-      value_type,
-      value,
-      description: f.type === 'default' ? '固定值' : f.type === 'image' ? '图片字段' : '动态字段',
+      source: 'task_param',
+      param: f.name,
+      description: '任务参数字段',
     }
   })
 }

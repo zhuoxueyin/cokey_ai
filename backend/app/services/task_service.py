@@ -100,6 +100,35 @@ class TaskService:
         result_obj = await self.collection.update_one({"task_id": task_id}, {"$set": update_data})
         return result_obj.modified_count > 0
 
+    async def patch_channel_request(
+        self,
+        task_id: str,
+        channel_request: Dict[str, Any],
+        channel_code: Optional[str] = None,
+    ) -> bool:
+        """仅更新渠道入参（在 HTTP 发出前写入，不等待结果）"""
+        update_data: Dict[str, Any] = {
+            "channel_request": self._truncate_large_data(channel_request, 1 * 1024 * 1024),
+            "updated_at": datetime.utcnow(),
+        }
+        if channel_code is not None:
+            update_data["channel_code"] = channel_code
+        result_obj = await self.collection.update_one({"task_id": task_id}, {"$set": update_data})
+        return result_obj.modified_count > 0
+
+    async def patch_channel_response(
+        self,
+        task_id: str,
+        channel_response: Dict[str, Any],
+    ) -> bool:
+        """仅更新渠道出参"""
+        update_data = {
+            "channel_response": self._truncate_large_data(channel_response, 5 * 1024 * 1024),
+            "updated_at": datetime.utcnow(),
+        }
+        result_obj = await self.collection.update_one({"task_id": task_id}, {"$set": update_data})
+        return result_obj.modified_count > 0
+
     async def get_by_external_task_id(self, external_task_id: str) -> Optional[Dict[str, Any]]:
         """通过外部任务ID查询任务（用于服务器重启后恢复状态）"""
         doc = await self.collection.find_one({"external_task_id": external_task_id})
@@ -114,11 +143,17 @@ class TaskService:
         return tasks
 
     async def list(self, page: int = 1, page_size: int = 20, session_id: Optional[str] = None,
-                   model_code: Optional[str] = None, category: Optional[str] = None,
+                   task_id: Optional[str] = None, trace_id: Optional[str] = None,
+                   model_code: Optional[str] = None, channel_code: Optional[str] = None,
+                   category: Optional[str] = None,
                    status: Optional[str] = None, user_id: Optional[str] = None,
                    time_range: str = "6h",
                    sort_by: str = "created_at", sort_order: int = -1) -> Tuple[List[Dict[str, Any]], int]:
         query = {}
+        if task_id:
+            query["task_id"] = task_id
+        if trace_id:
+            query["trace_id"] = trace_id
         if user_id:
             # 支持查询有user_id的任务，以及兼容旧数据（没有user_id的任务）
             query["$or"] = [
@@ -130,6 +165,8 @@ class TaskService:
             query["session_id"] = session_id
         if model_code:
             query["model_code"] = model_code
+        if channel_code:
+            query["channel_code"] = channel_code
         if category:
             query["category"] = category
         if status:
@@ -172,10 +209,10 @@ class TaskService:
         if category and category != 'all':
             query["category"] = category
         
-        # 时间范围筛选（单位：小时，默认最近1天=24小时）
+        # 时间范围筛选（单位：小时；0=全部时间，默认最近1天=24小时）
         if time_range is None:
-            time_range = 24  # 默认最近1天
-        if time_range > 0:
+            time_range = 24
+        if time_range and time_range > 0:
             from datetime import datetime, timedelta
             start_time = datetime.utcnow() - timedelta(hours=time_range)
             query["created_at"] = {"$gte": start_time}

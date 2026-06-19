@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import { Card, Button, Input, message, Upload, Modal, Tabs, Empty, Image, Tag, Popover, Segmented, Slider, Select } from 'antd'
 import {
   ThunderboltOutlined,
@@ -137,6 +137,19 @@ export default function ComposerArea() {
       : currentState.ratio
   const clarityOptionsForRatio = getClaritiesForRatio(imageSizeSpec, activeRatioKey)
 
+  const videoConfigLabel = useMemo(() => {
+    const ratioLabel = currentState.ratio === 'auto' ? '智能比例' : currentState.ratio
+    const qualityLabel = currentState.videoQuality
+    const durationLabel = `${currentState.videoDuration}s`
+    const audioLabel = currentState.videoAudio ? '有配音' : '无配音'
+    return `${ratioLabel} | ${qualityLabel} | ${durationLabel} | ${audioLabel}`
+  }, [
+    currentState.ratio,
+    currentState.videoQuality,
+    currentState.videoDuration,
+    currentState.videoAudio,
+  ])
+
   // 切换模型时，将比例/清晰度收敛到该模型官方支持项
   useEffect(() => {
     if (activeCategory !== 'image' || !currentModel) return
@@ -232,11 +245,6 @@ export default function ComposerArea() {
         if (params.resolution && ['1k', '2k', '4k'].includes(params.resolution)) {
           state.clarity = params.resolution as ImageClarity
         }
-        if (false) {
-          // legacy size parse removed
-          const _unused = params.size
-        }
-        if (false && params.size !== undefined && params.size.includes('x')) {
         if (params.quality !== undefined) {
           const q = params.quality as 'auto' | 'low' | 'medium' | 'high'
           if (['auto', 'low', 'medium', 'high'].includes(q)) {
@@ -271,7 +279,7 @@ export default function ComposerArea() {
         }
         // 只有在没有从 size 解析出比例的情况下，才使用 params.ratio
         if (params.ratio !== undefined && !ratioFromSize) {
-          state.ratio = params.ratio as RatioKey | 'auto'
+          state.ratio = params.ratio as AspectRatioKey | 'auto'
         }
         if (params.duration !== undefined) {
           state.videoDuration = Number(params.duration)
@@ -408,9 +416,32 @@ export default function ComposerArea() {
   }
 
   const confirmPicker = () => {
+    // 本地上传 Tab：文件已在 handleFileUpload 中写入 state，确定仅关闭弹窗
+    if (pickerActiveTab === 'upload') {
+      if (pickerCategory === 'image' && currentState.uploadImages.length === 0) {
+        message.warning('请先上传图片')
+        return
+      }
+      if (pickerCategory === 'video' && currentState.uploadVideos.length === 0) {
+        message.warning('请先上传视频')
+        return
+      }
+      if (pickerCategory === 'audio' && currentState.uploadAudios.length === 0) {
+        message.warning('请先上传音频')
+        return
+      }
+      setPickerOpen(false)
+      setSelectedAssets(new Set())
+      return
+    }
+
     const selectedItems = assetList.filter((a) => selectedAssets.has(a.id))
-    
+
     if (pickerCategory === 'image') {
+      if (selectedItems.length === 0) {
+        message.warning('请从资源库选择图片')
+        return
+      }
       const validItems: ImageRef[] = []
       const skipped: string[] = []
       for (const a of selectedItems) {
@@ -434,6 +465,10 @@ export default function ComposerArea() {
       updateCurrentState({ uploadImages: [...currentState.uploadImages, ...validItems] })
       message.success(`已添加 ${validItems.length} 张图片`)
     } else if (pickerCategory === 'video') {
+      if (selectedItems.length === 0) {
+        message.warning('请从资源库选择视频')
+        return
+      }
       const newVideos = [
         ...currentState.uploadVideos,
         ...selectedItems.map((a) => ({ url: a.url, file_name: a.file_name })),
@@ -443,6 +478,10 @@ export default function ComposerArea() {
         message.success(`已添加 ${selectedAssets.size} 个视频`)
       }
     } else if (pickerCategory === 'audio') {
+      if (selectedItems.length === 0) {
+        message.warning('请从资源库选择音频')
+        return
+      }
       const newAudios = [
         ...currentState.uploadAudios,
         ...selectedItems.map((a) => ({ url: a.url, file_name: a.file_name })),
@@ -491,8 +530,13 @@ export default function ComposerArea() {
     }
 
     if (activeCategory === 'image') {
-      const r = RATIO_OPTIONS.find((x) => x.key === currentState.ratio) || RATIO_OPTIONS[0]
-      finalParams.size = calcSize(r.w, r.h, currentState.clarity)
+      const spec = resolveImageSizeSpec(currentModel)
+      const { ratio, clarity } = clampSizeSelection(
+        spec,
+        currentState.ratio,
+        currentState.clarity,
+      )
+      Object.assign(finalParams, buildImageSizeParams(spec, ratio, clarity))
       if (currentState.quality !== 'auto') finalParams.quality = currentState.quality
       if (currentState.background !== 'auto') finalParams.background = currentState.background
       finalParams.n = currentState.count
@@ -596,8 +640,11 @@ export default function ComposerArea() {
     text: '文本生成',
   }
 
-  const r = RATIO_OPTIONS.find((x) => x.key === currentState.ratio) || RATIO_OPTIONS[0]
-  const currentSize = activeCategory === 'text' ? '—' : calcSize(r.w, r.h, currentState.clarity)
+  const currentSizePreset =
+    activeCategory === 'image'
+      ? resolveOfficialSize(imageSizeSpec, activeRatioKey, currentState.clarity)
+      : null
+  const currentSize = currentSizePreset?.size ?? '—'
 
   const sizeButtonStyle = (selected: boolean): React.CSSProperties => ({
     display: 'flex',
@@ -647,22 +694,36 @@ export default function ComposerArea() {
 
   const imageConfigPanel = (
     <div style={{ width: 480, padding: 8 }}>
+      <div style={{ fontSize: 11, color: '#999', marginBottom: 12 }}>
+        {imageSizeSpec.label} 官方尺寸 · 仅显示当前模型支持的组合
+      </div>
       {/* 尺寸比例 */}
       <div style={{ marginBottom: 16 }}>
-        <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 8 }}>尺寸比例</div>
+        <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 8 }}>
+          尺寸比例
+          <span style={{ fontSize: 11, color: '#999', fontWeight: 400, marginLeft: 8 }}>
+            {currentSize}
+          </span>
+        </div>
         <div
           style={{
             display: 'grid',
-            gridTemplateColumns: 'repeat(6, 1fr)',
+            gridTemplateColumns: 'repeat(5, 1fr)',
             gap: 8,
           }}
         >
-          {RATIO_OPTIONS.map((opt) => {
+          {ratioOptionsForClarity.map((opt) => {
             const selected = currentState.ratio === opt.key
             return (
               <div
                 key={opt.key}
-                onClick={() => updateCurrentState({ ratio: opt.key })}
+                onClick={() => {
+                  const clarities = getClaritiesForRatio(imageSizeSpec, opt.key)
+                  const nextClarity = clarities.includes(currentState.clarity)
+                    ? currentState.clarity
+                    : clarities[0]
+                  updateCurrentState({ ratio: opt.key, clarity: nextClarity })
+                }}
                 style={{
                   display: 'flex',
                   flexDirection: 'column',
@@ -693,12 +754,18 @@ export default function ComposerArea() {
         <Segmented
           block
           value={currentState.clarity}
-          onChange={(v) => updateCurrentState({ clarity: v as '1k' | '2k' | '4k' })}
-          options={[
-            { label: '1K', value: '1k' },
-            { label: '2K', value: '2k' },
-            { label: '4K', value: '4k' },
-          ]}
+          onChange={(v) => {
+            const clarity = v as ImageClarity
+            const ratios = getRatiosForClarity(imageSizeSpec, clarity)
+            const nextRatio = ratios.includes(currentState.ratio as AspectRatioKey)
+              ? currentState.ratio
+              : ratios[0]
+            updateCurrentState({ clarity, ratio: nextRatio as AspectRatioKey })
+          }}
+          options={clarityOptionsForRatio.map((c) => ({
+            label: CLARITY_LABELS[c],
+            value: c,
+          }))}
         />
       </div>
 
@@ -762,7 +829,7 @@ export default function ComposerArea() {
                 return (
                   <div
                     key={opt.key}
-                    onClick={() => updateCurrentState({ ratio: opt.key as RatioKey | 'auto' })}
+                    onClick={() => updateCurrentState({ ratio: opt.key as AspectRatioKey | 'auto' })}
                     style={{
                       display: 'flex',
                       flexDirection: 'column',
@@ -838,6 +905,9 @@ export default function ComposerArea() {
         </>
       ) : activeCategory === 'image' ? (
         <>
+          <div style={{ fontSize: 11, color: '#999', marginBottom: 12 }}>
+            {imageSizeSpec.label} 官方尺寸
+          </div>
           <div style={{ marginBottom: 16 }}>
             <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 8 }}>
               清晰度级别
@@ -848,12 +918,18 @@ export default function ComposerArea() {
             <Segmented
               block
               value={currentState.clarity}
-              onChange={(v) => updateCurrentState({ clarity: v as any })}
-              options={[
-                { label: '1K（日常首选，速度最快）', value: '1k' },
-                { label: '2K（商用高清）', value: '2k' },
-                { label: '4K（实验性，印刷/大屏）', value: '4k' },
-              ]}
+              onChange={(v) => {
+                const clarity = v as ImageClarity
+                const ratios = getRatiosForClarity(imageSizeSpec, clarity)
+                const nextRatio = ratios.includes(currentState.ratio as AspectRatioKey)
+                  ? currentState.ratio
+                  : ratios[0]
+                updateCurrentState({ clarity, ratio: nextRatio as AspectRatioKey })
+              }}
+              options={clarityOptionsForRatio.map((c) => ({
+                label: `${CLARITY_LABELS[c]}（${CLARITY_HINTS[c]}）`,
+                value: c,
+              }))}
             />
           </div>
 
@@ -862,16 +938,22 @@ export default function ComposerArea() {
             <div
               style={{
                 display: 'grid',
-                gridTemplateColumns: 'repeat(4, 1fr)',
+                gridTemplateColumns: 'repeat(5, 1fr)',
                 gap: 8,
               }}
             >
-              {RATIO_OPTIONS.map((opt) => {
+              {ratioOptionsForClarity.map((opt) => {
                 const selected = currentState.ratio === opt.key
                 return (
                   <div
                     key={opt.key}
-                    onClick={() => updateCurrentState({ ratio: opt.key })}
+                    onClick={() => {
+                      const clarities = getClaritiesForRatio(imageSizeSpec, opt.key)
+                      const nextClarity = clarities.includes(currentState.clarity)
+                        ? currentState.clarity
+                        : clarities[0]
+                      updateCurrentState({ ratio: opt.key, clarity: nextClarity })
+                    }}
                     style={sizeButtonStyle(selected)}
                   >
                     <RatioIcon w={opt.w} h={opt.h} />
@@ -1853,7 +1935,7 @@ export default function ComposerArea() {
                   fontSize: 12,
                 }}
               >
-                <span>智能比例 | 720p | 5s | {currentState.videoAudio ? '有配音' : '无配音'}</span>
+                <span>{videoConfigLabel}</span>
                 <DownOutlined style={{ fontSize: 10 }} />
               </Button>
             </Popover>

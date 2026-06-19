@@ -32,6 +32,7 @@ class ModelService:
             "status": data.get("status", "online"),
             "sort_order": data.get("sort_order", 0),
             "is_default": data.get("is_default", False),
+            "allow_channel_fallback": data.get("allow_channel_fallback", True),
             "created_at": now,
             "updated_at": now,
         }
@@ -85,7 +86,8 @@ class ModelService:
             return None
         update_data = {}
         for key in ["model_name", "category", "cover", "description", "tags",
-                    "param_schema", "supported_inputs", "status", "sort_order", "is_default"]:
+                    "param_schema", "supported_inputs", "status", "sort_order", "is_default",
+                    "allow_channel_fallback"]:
             if key in data:
                 update_data[key] = data[key]
         if "channel_bindings" in data and data["channel_bindings"] is not None:
@@ -202,6 +204,7 @@ class ModelService:
             "status": doc["status"],
             "sort_order": doc.get("sort_order", 0),
             "is_default": doc.get("is_default", False),
+            "allow_channel_fallback": doc.get("allow_channel_fallback", True),
             "created_at": doc["created_at"],
             "updated_at": doc["updated_at"],
         }

@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any, Dict, Optional
 
 from app.adapters.base import BaseChannelAdapter
+from app.adapters.apiyi import ApiyiAdapter
 from app.adapters.weelinking import WeelinkingAdapter
 from app.adapters.volcengine import VolcengineAdapter
 from app.core.logging_config import get_logger
@@ -27,9 +28,8 @@ def create_adapter(channel_config: Dict[str, Any], trace_id: str) -> Optional[Ba
         logger.info(f"[{trace_id}] 使用 WeeLinking 适配器 (provider=weelinking)")
         return WeelinkingAdapter(channel_config, trace_id)
     if channel_provider == "apiyi":
-        # APIYi 同样使用 OpenAI 兼容协议
-        logger.info(f"[{trace_id}] 使用 WeeLinking 适配器 (provider=apiyi, OpenAI 兼容)")
-        return WeelinkingAdapter(channel_config, trace_id)
+        logger.info(f"[{trace_id}] 使用 APIYI 适配器 (provider=apiyi)")
+        return ApiyiAdapter(channel_config, trace_id)
     if channel_provider == "volcengine":
         logger.info(f"[{trace_id}] 使用 Volcengine 适配器 (provider=volcengine)")
         return VolcengineAdapter(channel_config, trace_id)
@@ -40,7 +40,7 @@ def create_adapter(channel_config: Dict[str, Any], trace_id: str) -> Optional[Ba
     if "volcengine" in channel_code.lower() or "volcano" in channel_code.lower() or "huoshan" in channel_code.lower():
         return VolcengineAdapter(channel_config, trace_id)
     if "apiyi" in channel_code.lower():
-        return WeelinkingAdapter(channel_config, trace_id)
+        return ApiyiAdapter(channel_config, trace_id)
 
     # 优先级3：channel_type 粗粒度
     if channel_type == "direct":
@@ -74,7 +74,7 @@ class ChannelAdapterRegistry:
 
 
 ChannelAdapterRegistry.register("weelinking", WeelinkingAdapter)
-ChannelAdapterRegistry.register("apiyi", WeelinkingAdapter)
+ChannelAdapterRegistry.register("apiyi", ApiyiAdapter)
 ChannelAdapterRegistry.register("volcengine", VolcengineAdapter)
 ChannelAdapterRegistry.register("aggregator", WeelinkingAdapter)
 ChannelAdapterRegistry.register("direct", VolcengineAdapter)

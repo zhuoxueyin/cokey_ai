@@ -44,10 +44,10 @@ GPT_IMAGE_2_PRESETS: List[ImageSizePreset] = [
     _p("4:5", "1k", 1024, 1280),
     _p("4:5", "2k", 2048, 2560),
     _p("4:5", "4k", 2576, 3216),
-    _p("16:9", "1k", 1536, 864),
+    _p("16:9", "1k", 1536, 1024),
     _p("16:9", "2k", 2048, 1152),
     _p("16:9", "4k", 3840, 2160),
-    _p("9:16", "1k", 864, 1536),
+    _p("9:16", "1k", 1024, 1536),
     _p("9:16", "2k", 1152, 2048),
     _p("9:16", "4k", 2160, 3840),
     _p("2:1", "1k", 2048, 1024),
@@ -82,7 +82,7 @@ MODEL_SIZE_SPECS: Dict[str, List[ImageSizePreset]] = {
 }
 
 MODEL_MATCH_PATTERNS: List[Tuple[str, List[str]]] = [
-    ("gpt-image-2", ["gpt-image-2", "gpt-image", "gpt_image"]),
+    ("gpt-image-2", ["gpt-image-2-all", "gpt-image-2-vip", "gpt-image-2", "gpt-image", "gpt_image"]),
     ("dall-e-3", ["dall-e-3", "dalle-3", "dall_e_3"]),
 ]
 

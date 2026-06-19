@@ -5,6 +5,7 @@ from app.services.task_service import get_task_service
 from app.services.model_service import get_model_service
 from app.services.session_service import get_session_service
 from app.services.gateway_service import get_model_gateway
+from app.services.trace_log_service import get_trace_log_service
 from app.services.asset_service import get_asset_service
 from app.services.channel_service import get_channel_service
 from app.adapters import create_adapter
@@ -14,6 +15,44 @@ import asyncio
 logger = get_logger()
 
 router = APIRouter(prefix="/tasks", tags=["用户-任务"])
+
+
+async def _try_sync_external_task(task: dict) -> dict:
+    """处理中的异步任务向渠道查询一次，并回写本地状态（用于轮询恢复）"""
+    if task.get("status") != "processing":
+        return task
+    external_task_id = task.get("external_task_id")
+    channel_code = task.get("channel_code")
+    if not external_task_id or not channel_code:
+        return task
+
+    channel = await get_channel_service().get_by_code(channel_code)
+    if not channel:
+        return task
+    adapter = create_adapter(channel, task.get("trace_id"))
+    if not adapter:
+        return task
+
+    try:
+        recovery_result = await adapter.query_task(external_task_id)
+        if recovery_result.get("success"):
+            await get_task_service().update_status(
+                task["task_id"],
+                "success",
+                result=recovery_result.get("data"),
+                channel_code=channel_code,
+            )
+            return await get_task_service().get_by_id(task["task_id"]) or task
+        if recovery_result.get("status") == "failed":
+            await get_task_service().update_status(
+                task["task_id"],
+                "failed",
+                error_message=recovery_result.get("error_message", "外部任务失败"),
+            )
+            return await get_task_service().get_by_id(task["task_id"]) or task
+    except Exception as e:
+        logger.warning(f"同步外部任务状态失败 {task.get('task_id')}: {e}")
+    return task
 
 
 @router.post("")
@@ -53,7 +92,8 @@ async def execute_task(task_id: str):
             model_code=task["model_code"],
             category=task["category"],
             params=task["params"],
-            trace_id=task.get("trace_id")
+            trace_id=task.get("trace_id"),
+            task_id=task_id,
         )
 
         if result.get("success"):
@@ -61,7 +101,16 @@ async def execute_task(task_id: str):
                 task_id, "success",
                 result=result.get("data"),
                 channel_code=result.get("channel_code"),
-                duration_ms=result.get("duration_ms")
+                duration_ms=result.get("duration_ms"),
+                channel_request=result.get("channel_request"),
+                channel_response=result.get("channel_response"),
+                external_task_id=result.get("external_task_id"),
+            )
+            await get_trace_log_service().finalize(
+                task.get("trace_id"),
+                "success",
+                duration_ms=result.get("duration_ms"),
+                channel_code=result.get("channel_code"),
             )
             return success({
                 "task_id": task_id,
@@ -74,7 +123,16 @@ async def execute_task(task_id: str):
                 task_id, "failed",
                 error_message=result.get("error_message", "任务执行失败"),
                 channel_code=result.get("channel_code"),
-                duration_ms=result.get("duration_ms")
+                duration_ms=result.get("duration_ms"),
+                channel_request=result.get("channel_request"),
+                channel_response=result.get("channel_response"),
+            )
+            await get_trace_log_service().finalize(
+                task.get("trace_id"),
+                "failed",
+                duration_ms=result.get("duration_ms"),
+                error_message=result.get("error_message"),
+                channel_code=result.get("channel_code"),
             )
             return error(result.get("error_code", "internal_error"), result.get("error_message", "任务执行失败"))
 
@@ -89,6 +147,8 @@ async def get_task_status(task_id: str):
     task = await get_task_service().get_by_id(task_id)
     if not task:
         return error("task_not_found", "任务不存在")
+    if task.get("category") == "video":
+        task = await _try_sync_external_task(task)
     return success({
         "task_id": task["task_id"],
         "status": task["status"],
@@ -167,6 +227,25 @@ async def generate(data: TaskCreate):
         if model.get("status") != "online":
             return error("model_offline", f"模型已下架")
 
+        if data.category == "image":
+            from app.core.image_size_spec import normalize_image_size
+
+            bindings = [
+                b for b in (model.get("channel_bindings") or [])
+                if b.get("status", "active") == "active"
+            ]
+            bindings.sort(key=lambda b: b.get("priority", 1), reverse=True)
+            channel_model_id = bindings[0].get("channel_model_id", "") if bindings else ""
+
+            normalized, size_err = normalize_image_size(
+                dict(data.params),
+                data.model_code,
+                channel_model_id,
+            )
+            if size_err:
+                return error("validation_error", size_err)
+            data.params = normalized
+
         if data.category in ("image", "video", "text"):
             from app.core.cdn import validate_reference_images
             try:
@@ -183,6 +262,32 @@ async def generate(data: TaskCreate):
             user_id=data.user_id
         )
 
+        trace_svc = get_trace_log_service()
+        await trace_svc.ensure_log(
+            task["trace_id"],
+            task_id=task["task_id"],
+            model_code=data.model_code,
+            category=data.category,
+            user_id=data.user_id,
+            session_id=data.session_id,
+        )
+        await trace_svc.append_step(
+            task["trace_id"],
+            "frontend_request",
+            {
+                "model_code": data.model_code,
+                "category": data.category,
+                "session_id": data.session_id,
+                "params": data.params,
+            },
+        )
+        if data.category == "image":
+            await trace_svc.append_step(
+                task["trace_id"],
+                "param_normalize",
+                {"params_after_normalize": data.params},
+            )
+
         logger.info(f"[GENERATE] 更新任务状态为 processing...")
         await get_task_service().update_status(task["task_id"], "processing")
 
@@ -192,7 +297,8 @@ async def generate(data: TaskCreate):
             model_code=task["model_code"],
             category=task["category"],
             params=task["params"],
-            trace_id=task.get("trace_id")
+            trace_id=task.get("trace_id"),
+            task_id=task["task_id"],
         )
 
         if result.get("success"):
@@ -204,6 +310,17 @@ async def generate(data: TaskCreate):
                 channel_request=result.get("channel_request"),
                 channel_response=result.get("channel_response"),
                 external_task_id=result.get("external_task_id")
+            )
+            await trace_svc.append_step(
+                task["trace_id"],
+                "parse_result",
+                {"parsed": result.get("data")},
+            )
+            await trace_svc.finalize(
+                task["trace_id"],
+                "success",
+                duration_ms=result.get("duration_ms"),
+                channel_code=result.get("channel_code"),
             )
 
             # 记录生成的图片/视频到 assets 集合
@@ -283,6 +400,22 @@ async def generate(data: TaskCreate):
                 channel_request=result.get("channel_request"),
                 channel_response=result.get("channel_response")
             )
+            await trace_svc.append_step(
+                task["trace_id"],
+                "task_failed",
+                {
+                    "error_code": result.get("error_code"),
+                    "error_message": result.get("error_message"),
+                },
+                level="error",
+            )
+            await trace_svc.finalize(
+                task["trace_id"],
+                "failed",
+                duration_ms=result.get("duration_ms"),
+                error_message=result.get("error_message"),
+                channel_code=result.get("channel_code"),
+            )
             return error(result.get("error_code", "internal_error"), result.get("error_message", "生成失败"))
 
     except Exception as e:
@@ -326,7 +459,8 @@ async def retry_task(task_id: str):
             model_code=new_task["model_code"],
             category=new_task["category"],
             params=new_task["params"],
-            trace_id=new_task.get("trace_id")
+            trace_id=new_task.get("trace_id"),
+            task_id=new_task["task_id"],
         )
         
         if result.get("success"):
@@ -376,57 +510,26 @@ async def recover_task(task_id: str):
         external_task_id = task.get("external_task_id")
         if not external_task_id:
             return error("no_external_id", "任务没有外部任务ID，无法恢复")
-        
+
         logger.info(f"[RECOVER] 恢复任务: task_id={task_id}, external_task_id={external_task_id}")
-        
-        # 获取渠道配置
-        channel_code = task.get("channel_code")
-        if not channel_code:
-            return error("channel_not_found", "无法确定任务使用的渠道")
-        
-        channel = await get_channel_service().get_by_code(channel_code)
-        if not channel:
-            return error("channel_not_found", "渠道不存在")
-        
-        # 创建适配器并查询外部任务状态
-        adapter = create_adapter(channel, task.get("trace_id"))
-        if not adapter:
-            return error("adapter_error", "无法创建渠道适配器")
-        
-        # 查询外部任务状态
-        try:
-            recovery_result = await adapter.query_task(external_task_id)
-            if recovery_result.get("success"):
-                # 任务已完成
-                await get_task_service().update_status(
-                    task_id, "success",
-                    result=recovery_result.get("data"),
-                    channel_code=channel_code
-                )
-                return success({
-                    "task_id": task_id,
-                    "status": "success",
-                    "result": recovery_result.get("data"),
-                    "recovered": True
-                })
-            elif recovery_result.get("status") == "running":
-                # 任务仍在运行
-                return success({
-                    "task_id": task_id,
-                    "status": "processing",
-                    "message": "任务仍在第三方服务中运行，请稍后重试",
-                    "recovered": False
-                })
-            else:
-                # 任务失败
-                await get_task_service().update_status(
-                    task_id, "failed",
-                    error_message=recovery_result.get("error_message", "外部任务失败")
-                )
-                return error("external_task_failed", recovery_result.get("error_message", "外部任务失败"))
-        except Exception as e:
-            logger.error(f"查询外部任务状态失败: {e}")
-            return error("query_failed", f"查询外部任务状态失败: {e}")
+
+        synced = await _try_sync_external_task(task)
+        if synced.get("status") == "success":
+            return success({
+                "task_id": task_id,
+                "status": "success",
+                "result": synced.get("result"),
+                "recovered": True,
+            })
+        if synced.get("status") == "failed":
+            return error("external_task_failed", synced.get("error_message", "外部任务失败"))
+
+        return success({
+            "task_id": task_id,
+            "status": "processing",
+            "message": "任务仍在第三方服务中运行，请稍后重试",
+            "recovered": False,
+        })
     
     except Exception as e:
         logger.error(f"恢复任务失败: {e}")

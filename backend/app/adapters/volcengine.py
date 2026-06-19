@@ -12,6 +12,7 @@ from app.adapters.base import BaseChannelAdapter
 from app.core.cdn import extract_url_from_image_item, require_cdn_url
 from app.core.config_engine import ConfigEngine
 from app.core.logging_config import get_logger
+from app.core.volcengine_video import is_volcengine_video_endpoint
 from app.utils.url_utils import join_url
 
 logger = get_logger()
@@ -60,11 +61,12 @@ class VolcengineAdapter(BaseChannelAdapter):
     ) -> Dict[str, Any]:
         """将平台参数转换为火山引擎格式 - 支持视频和多模态文本/图片"""
 
-        # 视频格式（走 content 字段）
-        # 参考：Seedancer API 需要 content 字段
-        is_video = (endpoint_config and endpoint_config.get("type") == "video") or \
-                   params.get("is_video") or \
-                   params.get("category") == "video"
+        # 视频：多模态 content[]（文/图/视频/音频），统一走 _build_video_body
+        is_video = (
+            is_volcengine_video_endpoint(endpoint_config, category=params.get("category", ""))
+            or params.get("is_video")
+            or params.get("category") == "video"
+        )
 
         if is_video:
             return self._build_video_body(params)
@@ -172,6 +174,28 @@ class VolcengineAdapter(BaseChannelAdapter):
             result["video_quality"] = params["video_quality"]
         return result
 
+    def _finalize_volcengine_video_body(
+        self,
+        body: Dict[str, Any],
+        channel_params: Dict[str, Any],
+        channel_model_id: str,
+    ) -> Dict[str, Any]:
+        """
+        body_params 未命中（如 curl 导入把固定值误标为 dynamic）时，
+        用 convert_params / _build_video_body 的结果兜底，避免空 body。
+        """
+        shaped = (
+            channel_params
+            if channel_params.get("content")
+            else self._build_video_body(channel_params)
+        )
+        merged: Dict[str, Any] = {**shaped, **(body or {})}
+        if not merged.get("model"):
+            merged["model"] = channel_model_id
+        if not merged.get("content"):
+            merged["content"] = shaped.get("content", [])
+        return merged
+
     async def _http_post(self, url: str, body: Dict[str, Any], api_key: str,
                          content_type: str = "application/json",
                          extra_headers: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
@@ -198,6 +222,8 @@ class VolcengineAdapter(BaseChannelAdapter):
             "body": body,
             "timestamp": time.time(),
         }
+
+        await self._flush_outgoing_request_log()
 
         logger.info(f"[{self.trace_id}] ═════════ POST {url}")
         try:
@@ -352,14 +378,22 @@ class VolcengineAdapter(BaseChannelAdapter):
                 channel_code=self.channel_code,
                 trace_id=self.trace_id,
             )
+            if is_volcengine_video_endpoint(endpoint_config, category=category):
+                body = self._finalize_volcengine_video_body(
+                    body, channel_params, channel_model_id
+                )
         else:
             logger.info(f"[{self.trace_id}] 动态端点调用(无模板) - type={endpoint_type}, path={endpoint_path}")
             body = {"model": channel_model_id, **channel_params}
 
         logger.info(f"[{self.trace_id}] URL={url}, method={method}, content_type={content_type}")
 
-        # 视频端点走异步任务模式
-        if endpoint_type == "video" or "contents/generations/tasks" in endpoint_path:
+        # 视频端点走异步任务模式（video / video_image / 多模态槽位）
+        if (
+            endpoint_type in ("video", "video_image")
+            or is_volcengine_video_endpoint(endpoint_config, category=category)
+            or "contents/generations/tasks" in endpoint_path
+        ):
             return await self._call_video_async(url, body, api_key, content_type, extra_headers)
 
         if method == "POST":
@@ -398,11 +432,12 @@ class VolcengineAdapter(BaseChannelAdapter):
 
         logger.info(f"[{self.trace_id}] 任务创建成功，task_id={task_id}")
 
+        self._create_response = create_response
+        await self._persist_external_task_id(task_id)
+
         # 步骤2: 轮询任务状态
         logger.info(f"[{self.trace_id}] 步骤2 - 开始轮询任务状态")
         status_url = f"{url}/{task_id}"
-
-        self._create_response = create_response
 
         # 轮询 GET 用 headers
         poll_headers: Dict[str, str] = {

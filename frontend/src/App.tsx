@@ -13,6 +13,9 @@ import {
   AppstoreOutlined,
   ClusterOutlined,
   HistoryOutlined,
+  FileSearchOutlined,
+  ApiOutlined,
+  FormOutlined,
   MenuFoldOutlined,
   MenuUnfoldOutlined,
   MessageOutlined,
@@ -20,16 +23,23 @@ import {
   LogoutOutlined,
   EditOutlined,
   DownOutlined,
+  BlockOutlined,
 } from '@ant-design/icons'
 import Workspace from './pages/Workspace'
 import AssetManager from './pages/AssetManager'
 import ModelAdmin from './pages/ModelAdmin'
 import ChannelAdmin from './pages/ChannelAdmin'
 import TaskAdmin from './pages/TaskAdmin'
+import TraceLogAdmin from './pages/TraceLogAdmin'
+import OnboardingAdmin from './pages/OnboardingAdmin'
+import ProtocolProfileAdmin from './pages/ProtocolProfileAdmin'
 import PromptManager from './pages/PromptManager'
+import CanvasHome from './pages/CanvasHome'
+import CanvasEditor from './pages/CanvasEditor'
 import Login from './pages/Login'
 import { logout, uploadImage, updateProfile } from './api'
 import { message } from 'antd'
+import AvatarCropModal from './components/AvatarCropModal'
 
 const { Header, Sider, Content } = Layout
 
@@ -40,6 +50,11 @@ const mainMenuItems: MenuItem[] = [
     key: '/',
     icon: <DesktopOutlined />,
     label: <Link to="/">创作工作台</Link>,
+  },
+  {
+    key: '/canvas',
+    icon: <BlockOutlined />,
+    label: <Link to="/canvas">无限画布</Link>,
   },
   {
     key: '/assets',
@@ -70,6 +85,21 @@ const mainMenuItems: MenuItem[] = [
         key: '/admin/tasks',
         icon: <HistoryOutlined />,
         label: <Link to="/admin/tasks">任务管理</Link>,
+      },
+      {
+        key: '/admin/protocol-profiles',
+        icon: <ApiOutlined />,
+        label: <Link to="/admin/protocol-profiles">协议画像</Link>,
+      },
+      {
+        key: '/admin/onboarding',
+        icon: <FormOutlined />,
+        label: <Link to="/admin/onboarding">接入工单</Link>,
+      },
+      {
+        key: '/admin/trace-logs',
+        icon: <FileSearchOutlined />,
+        label: <Link to="/admin/trace-logs">链路日志</Link>,
       },
     ],
   },
@@ -137,13 +167,18 @@ function AppContent() {
 
   const isAdmin = location.pathname.startsWith('/admin')
   const isAssets = location.pathname === '/assets'
+  const isCanvas = location.pathname.startsWith('/canvas')
 
   const getSelectedKeys = () => {
     if (location.pathname.startsWith('/admin/models')) return ['/admin', '/admin/models']
     if (location.pathname.startsWith('/admin/channels')) return ['/admin', '/admin/channels']
     if (location.pathname.startsWith('/admin/tasks')) return ['/admin', '/admin/tasks']
+    if (location.pathname.startsWith('/admin/protocol-profiles')) return ['/admin', '/admin/protocol-profiles']
+    if (location.pathname.startsWith('/admin/onboarding')) return ['/admin', '/admin/onboarding']
+    if (location.pathname.startsWith('/admin/trace-logs')) return ['/admin', '/admin/trace-logs']
     if (location.pathname === '/assets') return ['/assets']
     if (location.pathname === '/prompts') return ['/prompts']
+    if (location.pathname.startsWith('/canvas')) return ['/canvas']
     return ['/']
   }
 
@@ -166,6 +201,8 @@ function AppContent() {
   const [avatarFile, setAvatarFile] = useState<File | null>(null)
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null)
   const [savingProfile, setSavingProfile] = useState(false)
+  const [cropModalOpen, setCropModalOpen] = useState(false)
+  const [cropImageSrc, setCropImageSrc] = useState<string | null>(null)
 
   const revokePreviewUrl = (url: string | null) => {
     if (url?.startsWith('blob:')) {
@@ -175,8 +212,11 @@ function AppContent() {
 
   const handleCloseEditModal = () => {
     revokePreviewUrl(avatarPreview)
+    revokePreviewUrl(cropImageSrc)
     setAvatarFile(null)
     setAvatarPreview(null)
+    setCropImageSrc(null)
+    setCropModalOpen(false)
     setEditModalVisible(false)
   }
 
@@ -201,10 +241,31 @@ function AppContent() {
       message.error('图片不能超过 5MB')
       return Upload.LIST_IGNORE
     }
+    revokePreviewUrl(cropImageSrc)
+    const url = URL.createObjectURL(file)
+    setCropImageSrc(url)
+    setCropModalOpen(true)
+    return false
+  }
+
+  const handleCropConfirm = (file: File) => {
     revokePreviewUrl(avatarPreview)
     setAvatarFile(file)
     setAvatarPreview(URL.createObjectURL(file))
-    return false
+    setCropModalOpen(false)
+    revokePreviewUrl(cropImageSrc)
+    setCropImageSrc(null)
+  }
+
+  const handleOpenCropAdjust = () => {
+    const src = avatarPreview
+    if (!src) return
+    if (!src.startsWith('blob:')) {
+      message.info('请重新选择本地图片后再调整可见区域')
+      return
+    }
+    setCropImageSrc(src)
+    setCropModalOpen(true)
   }
 
   // 保存用户信息
@@ -237,7 +298,12 @@ function AppContent() {
       message.error(res.message || '保存失败')
     } catch (e: any) {
       if (!e?.errorFields) {
-        message.error(e?.message || '保存失败')
+        const status = e?.response?.status
+        if (status === 405) {
+          message.error('保存接口不可用，请重启后端服务后重试')
+        } else {
+          message.error(e?.response?.data?.message || e?.message || '保存失败')
+        }
       }
     } finally {
       setSavingProfile(false)
@@ -329,18 +395,25 @@ function AppContent() {
                 }}
               />
               <div>
-                <Upload accept="image/*" showUploadList={false} beforeUpload={handleBeforeUpload}>
-                  <Button size="small" type="primary">
-                    选择图片
-                  </Button>
-                </Upload>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  <Upload accept="image/*" showUploadList={false} beforeUpload={handleBeforeUpload}>
+                    <Button size="small" type="primary">
+                      选择图片
+                    </Button>
+                  </Upload>
+                  {avatarPreview && (
+                    <Button size="small" onClick={handleOpenCropAdjust}>
+                      调整可见区域
+                    </Button>
+                  )}
+                </div>
                 {avatarFile && (
                   <div style={{ marginTop: 8, fontSize: 12, color: '#666' }}>
                     已选择: {avatarFile.name}
                   </div>
                 )}
                 <div style={{ marginTop: 4, fontSize: 11, color: '#999' }}>
-                  支持 JPG/PNG/WebP，不超过 5MB
+                  支持 JPG/PNG/WebP，不超过 5MB，可拖动缩放裁剪
                 </div>
               </div>
             </div>
@@ -357,6 +430,17 @@ function AppContent() {
           </Form.Item>
         </Form>
       </Modal>
+
+      <AvatarCropModal
+        open={cropModalOpen}
+        imageSrc={cropImageSrc}
+        onCancel={() => {
+          setCropModalOpen(false)
+          revokePreviewUrl(cropImageSrc)
+          setCropImageSrc(null)
+        }}
+        onConfirm={handleCropConfirm}
+      />
 
       <Layout style={{ height: 'calc(100vh - 48px)', overflow: 'hidden' }}>
         <Sider
@@ -385,17 +469,21 @@ function AppContent() {
 
         <Content
           style={{
-            background: '#f2f3f5',
+            background: isCanvas ? '#0d0d0f' : '#f2f3f5',
             height: '100%',
             overflow: 'hidden',
           }}
         >
           <Routes>
             <Route path="/" element={<Workspace />} />
+            <Route path="/canvas" element={<CanvasHome />} />
             <Route path="/assets" element={<AssetManager />} />
             <Route path="/admin/models" element={<ModelAdmin />} />
             <Route path="/admin/channels" element={<ChannelAdmin />} />
             <Route path="/admin/tasks" element={<TaskAdmin />} />
+            <Route path="/admin/protocol-profiles" element={<ProtocolProfileAdmin />} />
+            <Route path="/admin/onboarding" element={<OnboardingAdmin />} />
+            <Route path="/admin/trace-logs" element={<TraceLogAdmin />} />
             <Route path="/prompts" element={<PromptManager />} />
           </Routes>
         </Content>
@@ -430,6 +518,14 @@ export default function App() {
             <LoginRoute>
               <Login />
             </LoginRoute>
+          } 
+        />
+        <Route 
+          path="/canvas/:projectId" 
+          element={
+            <ProtectedRoute>
+              <CanvasEditor />
+            </ProtectedRoute>
           } 
         />
         <Route 

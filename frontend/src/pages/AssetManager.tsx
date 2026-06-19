@@ -4,6 +4,7 @@ import type { MenuProps } from 'antd'
 import { DeleteOutlined, UploadOutlined, DownloadOutlined, PictureOutlined, VideoCameraOutlined, FileOutlined, FilterOutlined, SearchOutlined, EyeOutlined } from '@ant-design/icons'
 import { listAssets, uploadAsset, deleteAsset } from '@/api'
 import type { AssetItem } from '@/types'
+import { downloadRemoteFile } from '@/utils/download'
 
 const { RangePicker } = DatePicker
 
@@ -98,28 +99,15 @@ export default function AssetManager() {
   }
 
   const handleDownload = async (asset: AssetItem) => {
+    const hide = message.loading('正在下载...', 0)
     try {
-      // 使用 fetch 获取图片数据，避免 CORS 问题
-      const response = await fetch(asset.url)
-      const blob = await response.blob()
-      const blobUrl = URL.createObjectURL(blob)
-      
-      const link = document.createElement('a')
-      link.href = blobUrl
-      link.download = asset.file_name
-      document.body.appendChild(link)
-      link.click()
-      document.body.removeChild(link)
-      URL.revokeObjectURL(blobUrl)
-    } catch (e) {
-      // 如果 fetch 失败，尝试传统方式
-      const link = document.createElement('a')
-      link.href = asset.url
-      link.target = '_blank'
-      link.download = asset.file_name
-      document.body.appendChild(link)
-      link.click()
-      document.body.removeChild(link)
+      await downloadRemoteFile(asset.url, asset.file_name)
+      message.success('下载成功')
+    } catch {
+      window.open(asset.url, '_blank', 'noopener,noreferrer')
+      message.warning('无法直接保存，已在新标签页打开，请右键另存为')
+    } finally {
+      hide()
     }
   }
 

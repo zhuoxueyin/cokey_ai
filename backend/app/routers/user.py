@@ -30,8 +30,9 @@ async def get_profile(auth_info: dict = Depends(AuthMiddleware)):
 
 
 @router.put("/profile")
+@router.post("/profile/update")
 async def update_profile(body: dict = Body(...), auth_info: dict = Depends(AuthMiddleware)):
-    """更新当前用户资料"""
+    """更新当前用户资料（支持 PUT 与 POST，兼容部分代理对 PUT 的限制）"""
     nickname = body.get("nickname")
     avatar_url = body.get("avatar_url")
 
@@ -54,6 +55,8 @@ async def update_profile(body: dict = Body(...), auth_info: dict = Depends(AuthM
         }, message="资料更新成功")
     except ValueError as e:
         return error("validation_error", str(e))
+    except Exception as e:
+        return error("internal_error", str(e))
 
 
 @router.put("/pwd")

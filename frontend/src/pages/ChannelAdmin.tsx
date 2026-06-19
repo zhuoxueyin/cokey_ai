@@ -19,6 +19,7 @@ import {
   Divider,
   Switch,
   Collapse,
+  Alert,
 } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import {
@@ -30,6 +31,7 @@ import {
   CopyOutlined,
   MinusCircleOutlined,
   PlusCircleOutlined,
+  BugOutlined,
 } from '@ant-design/icons'
 import {
   listChannelsAdmin,
@@ -40,6 +42,16 @@ import {
 } from '@/api'
 import type { ChannelItem, ParamMapping, EndpointConfig as EndpointConfigType, BodyParam } from '@/types'
 import { parseCurl, ParsedCurl, BodyField, bodyFieldsToBodyParams, extractContentTypeAndHeaders } from '@/utils/curlParser'
+import { PROTOCOL_SLOT_PRESETS, getPresetByProtocolSlot, PROTOCOL_SLOT_TYPE_HINT } from '@/constants/protocol'
+import {
+  BODY_PARAM_SOURCE,
+  BODY_PARAM_SOURCE_LABELS,
+  BUILTIN_OPTIONS,
+  getBodyParamPreset,
+  normalizeBodyParam,
+  createEmptyBodyParam,
+} from '@/constants/bodyParamPresets'
+import IntegrationDebugDrawer from '@/components/IntegrationDebugDrawer'
 
 const { TextArea } = Input
 const { Option } = Select
@@ -119,6 +131,7 @@ export default function ChannelAdmin() {
   const [viewItem, setViewItem] = useState<ChannelItem | null>(null)
   const [form] = Form.useForm<ChannelFormData>()
   const [generatedCode, setGeneratedCode] = useState('')
+  const [debugChannel, setDebugChannel] = useState<ChannelItem | null>(null)
 
   // curl 粘贴浮窗状态
   const [curlModalVisible, setCurlModalVisible] = useState(false)
@@ -243,6 +256,7 @@ export default function ChannelAdmin() {
     const endpointToForm = (ep: EndpointConfigType): any => {
       const result: any = {
         type: ep.type,
+        protocol_slot: ep.protocol_slot || '',
         endpoint: ep.endpoint,
         method: ep.method,
         description: ep.description,
@@ -251,7 +265,7 @@ export default function ChannelAdmin() {
         headers: ep.headers && typeof ep.headers === 'object'
           ? Object.entries(ep.headers).map(([k, v]) => ({ key: k, value: v }))
           : [],
-        body_params: ep.body_params || [],
+        body_params: (ep.body_params || []).map((bp) => normalizeBodyParam(bp)),
         param_mappings: ep.param_mappings || [],
         response_mappings: ep.response_mappings || [],
       }
@@ -320,6 +334,7 @@ export default function ChannelAdmin() {
     const endpointToForm = (ep: EndpointConfigType): any => {
       const result: any = {
         type: ep.type,
+        protocol_slot: ep.protocol_slot || '',
         endpoint: ep.endpoint,
         method: ep.method,
         description: ep.description,
@@ -328,7 +343,7 @@ export default function ChannelAdmin() {
         headers: ep.headers && typeof ep.headers === 'object'
           ? Object.entries(ep.headers).map(([k, v]) => ({ key: k, value: v }))
           : [],
-        body_params: ep.body_params || [],
+        body_params: (ep.body_params || []).map((bp) => normalizeBodyParam(bp)),
         param_mappings: ep.param_mappings || [],
         response_mappings: ep.response_mappings || [],
       }
@@ -375,6 +390,31 @@ export default function ChannelAdmin() {
     setModalVisible(true)
   }
 
+  const numOr = (val: unknown, fallback: number) =>
+    val === null || val === undefined || val === '' ? fallback : Number(val)
+
+  const resolveChannelType = (values: ChannelFormData): 'aggregator' | 'direct' => {
+    if (values.channel_type) return values.channel_type
+    const provider = values.channel_provider
+    if (provider && channelProviderMap[provider]) {
+      return channelProviderMap[provider].type
+    }
+    return 'aggregator'
+  }
+
+  const formatApiError = (e: any): string => {
+    const data = e?.response?.data
+    if (Array.isArray(data?.detail)) {
+      return data.detail
+        .map((d: any) => {
+          const loc = Array.isArray(d?.loc) ? d.loc.join('.') : ''
+          return loc ? `${loc}: ${d?.msg || ''}` : d?.msg || String(d)
+        })
+        .join('; ')
+    }
+    return e?.message || data?.message || data?.detail || '提交失败'
+  }
+
   const handleSubmit = async () => {
     try {
       const values = await form.validateFields()
@@ -386,6 +426,7 @@ export default function ChannelAdmin() {
           method: ep.method,
           description: ep.description,
         }
+        if (ep.protocol_slot?.trim()) result.protocol_slot = ep.protocol_slot.trim()
         // —— 新字段：content_type ——
         if (ep.content_type) result.content_type = ep.content_type
 
@@ -407,16 +448,38 @@ export default function ChannelAdmin() {
 
         // —— 新字段：body_params（入参表）——
         if (ep.body_params && ep.body_params.length > 0) {
-          result.body_params = ep.body_params.filter(
-            (bp: BodyParam) => bp && bp.key && bp.key.trim() !== ''
-          ) as BodyParam[]
+          result.body_params = ep.body_params
+            .filter((bp: BodyParam) => bp && bp.key && bp.key.trim() !== '')
+            .map((bp: BodyParam) => {
+              const n = normalizeBodyParam(bp)
+              const row: BodyParam = {
+                key: n.key.trim(),
+                source: n.source || 'task_param',
+                description: n.description,
+              }
+              if (n.source === 'literal') row.literal = n.literal ?? ''
+              if (n.source === 'task_param' || n.source === 'image_urls') row.param = n.param ?? ''
+              if (n.source === 'builtin') row.builtin = n.builtin || 'channel_model_id'
+              return row
+            })
         }
 
         // —— 旧格式兼容字段 ——
         if (ep.params_template_json) {
           try { result.params_template = JSON.parse(ep.params_template_json) } catch (e) {}
         }
-        if (ep.param_mappings) result.param_mappings = ep.param_mappings
+        if (ep.param_mappings?.length) {
+          const valid = ep.param_mappings.filter(
+            (m: ParamMapping) => m?.source?.trim() && m?.target?.trim(),
+          )
+          if (valid.length) result.param_mappings = valid
+        }
+        if (ep.response_mappings?.length) {
+          const valid = ep.response_mappings.filter(
+            (m: any) => m?.source?.trim() && m?.target?.trim(),
+          )
+          if (valid.length) result.response_mappings = valid
+        }
         if (ep.required_params_json) {
           result.required_params = ep.required_params_json.split(',').map((s: string) => s.trim()).filter(Boolean)
         }
@@ -424,35 +487,35 @@ export default function ChannelAdmin() {
           try { result.default_params = JSON.parse(ep.default_params_json) } catch (e) {}
         }
         if (ep.response_extract_path) result.response_extract_path = ep.response_extract_path
-        if (ep.response_mappings) result.response_mappings = ep.response_mappings
         return result
       }
 
+      const channelType = resolveChannelType(values)
       const processedEndpoints = (values.endpoints || []).map(processEndpoint)
 
       const payload: any = {
         channel_code: generatedCode,
         channel_name: values.channel_name,
-        channel_type: values.channel_type,
+        channel_type: channelType,
         channel_provider: values.channel_provider || null,
         base_url: values.base_url,
         status: values.status,
         auth_config: {
-          api_key: values.api_key,
+          api_key: values.api_key || '',
         },
         api_config: {
-          text_stream: values.text_stream,
+          text_stream: values.text_stream ?? true,
         },
         endpoints: processedEndpoints,
         retry_config: {
-          timeout: values.retry_timeout,
-          max_retries: values.retry_max_retries,
-          retry_delay: values.retry_retry_delay,
+          timeout: numOr(values.retry_timeout, 30),
+          max_retries: numOr(values.retry_max_retries, 3),
+          retry_delay: numOr(values.retry_retry_delay, 2),
         },
         rate_limit_config: {
-          requests_per_minute: values.rate_limit_per_minute,
-          requests_per_hour: values.rate_limit_per_hour,
-          requests_per_day: values.rate_limit_per_day,
+          requests_per_minute: numOr(values.rate_limit_per_minute, 60),
+          requests_per_hour: numOr(values.rate_limit_per_hour, 1000),
+          requests_per_day: numOr(values.rate_limit_per_day, 10000),
         },
       }
 
@@ -483,7 +546,7 @@ export default function ChannelAdmin() {
       fetchData()
     } catch (e: any) {
       if (e.errorFields) return
-      message.error(e.message || '提交失败')
+      message.error(formatApiError(e))
     }
   }
 
@@ -503,13 +566,7 @@ export default function ChannelAdmin() {
       title: '渠道名称',
       dataIndex: 'channel_name',
       key: 'channel_name',
-      width: 180,
-    },
-    {
-      title: '渠道编码',
-      dataIndex: 'channel_code',
-      key: 'channel_code',
-      render: (v) => <code style={{ background: '#f5f5f5', padding: '2px 6px', borderRadius: 4, fontSize: 12 }}>{v}</code>,
+      width: 200,
     },
     {
       title: '类型',
@@ -573,10 +630,13 @@ export default function ChannelAdmin() {
     {
       title: '操作',
       key: 'actions',
-      width: 200,
+      width: 240,
       fixed: 'right',
       render: (_, r) => (
         <Space size="small">
+          <Tooltip title="调试">
+            <Button size="small" icon={<BugOutlined />} onClick={() => setDebugChannel(r)} />
+          </Tooltip>
           <Tooltip title="查看">
             <Button size="small" icon={<EyeOutlined />} onClick={() => setViewItem(r)} />
           </Tooltip>
@@ -634,7 +694,7 @@ export default function ChannelAdmin() {
 
       <Modal
         title={editingItem ? '编辑渠道' : '新增渠道'}
-        visible={modalVisible}
+        open={modalVisible}
         onCancel={() => setModalVisible(false)}
         footer={[
           <Button key="back" onClick={() => setModalVisible(false)}>取消</Button>,
@@ -642,7 +702,8 @@ export default function ChannelAdmin() {
             {editingItem ? '更新' : '创建'}
           </Button>,
         ]}
-        width={960}
+        width={1180}
+        styles={{ body: { maxHeight: 'calc(100vh - 200px)', overflowY: 'auto' } }}
         destroyOnClose
       >
         <Form form={form} layout="vertical">
@@ -683,6 +744,9 @@ export default function ChannelAdmin() {
                     <Option value="volcengine">🌋 火山引擎（直连）</Option>
                   </Select>
                 </Form.Item>
+                <Form.Item name="channel_type" hidden>
+                  <Input />
+                </Form.Item>
               </Col>
               <Col span={12}>
                 <Form.Item label="状态" name="status">
@@ -715,71 +779,164 @@ export default function ChannelAdmin() {
           <Card
             size="small"
             title={
-              <Space>
-                <span>② 端点配置</span>
-                <Tag color="green">响应无需配置，系统自动识别</Tag>
+              <Space wrap>
+                <span>② HTTP 端点</span>
+                <Tag color="green">协议画像决定如何构参；此处只配 URL</Tag>
                 <Button
                   size="small"
                   type="primary"
                   ghost
                   onClick={() => setCurlModalVisible(true)}
-                  style={{ marginLeft: 'auto' }}
                 >
-                  📋 粘贴 curl 识别
+                  粘贴 curl 识别
                 </Button>
               </Space>
             }
             style={{ marginBottom: 12 }}
+            extra={
+              <Space wrap size={4}>
+                {PROTOCOL_SLOT_PRESETS.map((preset) => (
+                  <Button
+                    key={preset.protocol_slot}
+                    size="small"
+                    type="dashed"
+                    onClick={() => {
+                      const current = form.getFieldValue('endpoints') || []
+                      const exists = current.some((e: any) => e.protocol_slot === preset.protocol_slot)
+                      if (exists) {
+                        message.info('该协议槽位已存在')
+                        return
+                      }
+                      form.setFieldsValue({
+                        endpoints: [
+                          ...current,
+                          {
+                            protocol_slot: preset.protocol_slot,
+                            type: preset.type,
+                            endpoint: preset.endpoint,
+                            method: preset.method,
+                            content_type: preset.content_type,
+                            headers: [],
+                            body_params: [],
+                          },
+                        ],
+                      })
+                    }}
+                  >
+                    + {preset.label}
+                  </Button>
+                ))}
+              </Space>
+            }
           >
+            <Alert
+              type="info"
+              showIcon
+              style={{ marginBottom: 12, fontSize: 12 }}
+              message="协议槽位 vs 类型"
+              description={
+                <ul style={{ margin: 0, paddingLeft: 18 }}>
+                  <li><strong>协议槽位</strong>：API 契约名（如 <code>openai.images.generations</code>），与模型侧协议画像一致</li>
+                  <li><strong>类型</strong>：系统查找本渠道端点配置的键（<code>image</code> / <code>chat</code> / <code>image_edits</code>）</li>
+                  <li>选择预设槽位后，<strong>类型、路径、方法、Content-Type 会自动联动</strong>；类型字段会锁定</li>
+                  <li>同一类型可对应多个槽位（例如 <code>openai.chat.image.text_to_image</code> 与 <code>openai.chat.image.image_to_image</code> 都是 <code>chat</code>）</li>
+                  <li><strong>火山视频</strong>请使用 <code>volcengine.video.multimodal</code>：同一端点支持文/图/视频/音频组合，类型统一为 <code>video</code></li>
+                </ul>
+              }
+            />
             <Form.List name="endpoints">
               {(fields, { add, remove }) => (
                 <>
-                  {/* 表头 */}
-                  <Row
-                    gutter={8}
-                    align="middle"
-                    style={{
-                      background: '#fafafa',
-                      padding: '6px 8px',
-                      borderRadius: 6,
-                      marginBottom: 6,
-                      fontWeight: 600,
-                      fontSize: 12,
-                      color: '#555',
-                      border: '1px solid #f0f0f0',
-                    }}
-                  >
-                    <Col span={3}>类型</Col>
-                    <Col span={3}>方法</Col>
-                    <Col span={8}>端点路径</Col>
-                    <Col span={4}>Content-Type</Col>
-                    <Col span={4}>Body/Header</Col>
-                    <Col span={2} style={{ textAlign: 'center' }}>操作</Col>
-                  </Row>
-
                   {fields.map((field) => (
                     <div
                       key={field.key}
                       style={{
-                        background: '#fff',
-                        border: '1px solid #f0f0f0',
-                        borderRadius: 6,
-                        padding: 8,
-                        marginBottom: 6,
+                        background: '#fafafa',
+                        border: '1px solid #e8e8e8',
+                        borderRadius: 8,
+                        padding: '12px 14px',
+                        marginBottom: 10,
                       }}
                     >
-                      {/* 端点首行：类型/方法/路径/content-type/状态/删除 */}
-                      <Row gutter={8} align="top">
-                        <Col span={3}>
+                      <Row gutter={[12, 8]} align="middle">
+                        <Col flex="auto">
                           <Form.Item
                             {...field}
-                            name={[field.name, 'type']}
-                            rules={[{ required: true, message: '选' }]}
+                            name={[field.name, 'protocol_slot']}
+                            label={<span style={{ fontSize: 12, fontWeight: 600 }}>协议槽位</span>}
+                            tooltip="描述走哪套 API 契约，与协议画像 protocol_slot 对应"
+                            extra={PROTOCOL_SLOT_TYPE_HINT}
                             style={{ marginBottom: 0 }}
                           >
                             <Select
-                              size="small"
-                              placeholder="类型"
+                              allowClear
+                              showSearch
+                              placeholder="如 openai.images.generations"
+                              popupMatchSelectWidth={false}
+                              dropdownStyle={{ minWidth: 420 }}
+                              optionLabelProp="value"
+                              options={PROTOCOL_SLOT_PRESETS.map((p) => ({
+                                value: p.protocol_slot,
+                                label: (
+                                  <div>
+                                    <div style={{ fontWeight: 500 }}>{p.label}</div>
+                                    <div style={{ fontSize: 11, color: '#888' }}>{p.protocol_slot}</div>
+                                  </div>
+                                ),
+                              }))}
+                              onChange={(val: string) => {
+                                const preset = PROTOCOL_SLOT_PRESETS.find((p) => p.protocol_slot === val)
+                                if (!preset) return
+                                const endpoints = [...(form.getFieldValue('endpoints') || [])]
+                                endpoints[field.name] = {
+                                  ...endpoints[field.name],
+                                  protocol_slot: preset.protocol_slot,
+                                  type: preset.type,
+                                  endpoint: preset.endpoint,
+                                  method: preset.method,
+                                  content_type: preset.content_type,
+                                }
+                                form.setFieldsValue({ endpoints })
+                              }}
+                            />
+                          </Form.Item>
+                        </Col>
+                        <Col flex="none">
+                          <Button
+                            danger
+                            type="text"
+                            icon={<MinusCircleOutlined />}
+                            onClick={() => remove(field.name)}
+                            style={{ marginTop: 22 }}
+                          >
+                            删除
+                          </Button>
+                        </Col>
+                      </Row>
+
+                      <Form.Item noStyle shouldUpdate>
+                        {() => {
+                          const ep = (form.getFieldValue('endpoints') || [])[field.name] || {}
+                          const linked = !!getPresetByProtocolSlot(ep.protocol_slot)
+                          return (
+                      <Row gutter={12} style={{ marginTop: 4 }}>
+                        <Col xs={24} sm={12} md={5}>
+                          <Form.Item
+                            {...field}
+                            name={[field.name, 'type']}
+                            label={
+                              <Space size={4}>
+                                <span style={{ fontSize: 12, fontWeight: 600 }}>类型</span>
+                                {linked && <Tag color="processing" style={{ margin: 0, fontSize: 10 }}>已联动</Tag>}
+                              </Space>
+                            }
+                            tooltip="endpoint_type：网关/适配器用此键匹配 endpoints[].type"
+                            rules={[{ required: true, message: '请选择类型' }]}
+                            style={{ marginBottom: 0 }}
+                          >
+                            <Select
+                              placeholder="端点类型"
+                              disabled={linked}
                               onChange={(val: string) => {
                                 const endpoints = form.getFieldValue('endpoints') || []
                                 if (endpoints[field.name]) {
@@ -791,20 +948,25 @@ export default function ChannelAdmin() {
                                 }
                               }}
                             >
-                              <Option value="text">📝 文生文</Option>
-                              <Option value="chat">💬 对话式</Option>
-                              <Option value="image">🖼 文生图</Option>
-                              <Option value="image_edits">🎨 图生图</Option>
-                              <Option value="video">🎬 文生视频</Option>
-                              <Option value="video_image">🎞 图生视频</Option>
-                              <Option value="audio">🎵 音频</Option>
-                              <Option value="other">📦 其他</Option>
+                              <Option value="text">文生文</Option>
+                              <Option value="chat">对话</Option>
+                              <Option value="image">文生图</Option>
+                              <Option value="image_edits">图生图</Option>
+                              <Option value="video">文生视频</Option>
+                              <Option value="video_image">图生视频</Option>
+                              <Option value="audio">音频</Option>
+                              <Option value="other">其他</Option>
                             </Select>
                           </Form.Item>
                         </Col>
-                        <Col span={3}>
-                          <Form.Item {...field} name={[field.name, 'method']} style={{ marginBottom: 0 }}>
-                            <Select size="small" defaultValue="POST">
+                        <Col xs={24} sm={12} md={3}>
+                          <Form.Item
+                            {...field}
+                            name={[field.name, 'method']}
+                            label={<span style={{ fontSize: 12, fontWeight: 600 }}>方法</span>}
+                            style={{ marginBottom: 0 }}
+                          >
+                            <Select>
                               <Option value="POST">POST</Option>
                               <Option value="GET">GET</Option>
                               <Option value="PUT">PUT</Option>
@@ -812,103 +974,211 @@ export default function ChannelAdmin() {
                             </Select>
                           </Form.Item>
                         </Col>
-                        <Col span={8}>
+                        <Col xs={24} sm={24} md={10}>
                           <Form.Item
                             {...field}
                             name={[field.name, 'endpoint']}
-                            rules={[{ required: true, message: '填' }]}
+                            label={<span style={{ fontSize: 12, fontWeight: 600 }}>端点路径</span>}
+                            rules={[{ required: true, message: '请填写路径' }]}
                             style={{ marginBottom: 0 }}
                           >
-                            <Input size="small" placeholder="chat/completions" />
+                            <Input placeholder="images/generations" />
                           </Form.Item>
                         </Col>
-                        <Col span={4}>
-                          <Form.Item {...field} name={[field.name, 'content_type']} style={{ marginBottom: 0 }}>
-                            <Select size="small" allowClear placeholder="选 Content-Type">
-                              <Option value="application/json">JSON（默认）</Option>
-                              <Option value="multipart/form-data">form-data（文件上传）</Option>
-                              <Option value="application/x-www-form-urlencoded">form-enc</Option>
+                        <Col xs={24} sm={24} md={6}>
+                          <Form.Item
+                            {...field}
+                            name={[field.name, 'content_type']}
+                            label={<span style={{ fontSize: 12, fontWeight: 600 }}>Content-Type</span>}
+                            style={{ marginBottom: 0 }}
+                          >
+                            <Select allowClear placeholder="默认 JSON">
+                              <Option value="application/json">application/json</Option>
+                              <Option value="multipart/form-data">multipart/form-data</Option>
+                              <Option value="application/x-www-form-urlencoded">x-www-form-urlencoded</Option>
                             </Select>
                           </Form.Item>
                         </Col>
-                        {/* Body/Header 统计 */}
-                        <Col span={4}>
-                          <Form.Item shouldUpdate={() => true} style={{ marginBottom: 0 }}>
-                            {() => {
-                              const list: any[] = form.getFieldValue('endpoints') || []
-                              const thisEp = list[field.name] || {}
-                              const bp: any[] = thisEp.body_params || []
-                              const hd: any = thisEp.headers || []
-                              const hCount = Array.isArray(hd) ? hd.length : 0
-                              return (
-                                <div style={{ fontSize: 12, padding: '4px 0' }}>
-                                  {bp.length > 0 && <Tag color="blue">Body {bp.length}</Tag>}
-                                  {hCount > 0 && <Tag color="purple">Header {hCount}</Tag>}
-                                  {bp.length === 0 && hCount === 0 && (
-                                    <span style={{ color: '#bbb' }}>未配置</span>
-                                  )}
-                                </div>
-                              )
-                            }}
-                          </Form.Item>
-                        </Col>
-                        <Col span={2} style={{ textAlign: 'center' }}>
+                      </Row>
+                          )
+                        }}
+                      </Form.Item>
+
+                      {/* 高级：ConfigEngine 入参（默认折叠） */}
+                      <Collapse
+                        ghost
+                        size="small"
+                        style={{ marginTop: 6 }}
+                        items={[{
+                          key: 'advanced',
+                          label: (
+                            <Form.Item shouldUpdate={() => true} style={{ marginBottom: 0 }}>
+                              {() => {
+                                const list: any[] = form.getFieldValue('endpoints') || []
+                                const thisEp = list[field.name] || {}
+                                const bp: any[] = thisEp.body_params || []
+                                const hd: any = thisEp.headers || []
+                                const hCount = Array.isArray(hd) ? hd.length : 0
+                                return (
+                                  <span style={{ fontSize: 12 }}>
+                                    高级 ConfigEngine 入参
+                                    {(bp.length > 0 || hCount > 0) && (
+                                      <Tag color="blue" style={{ marginLeft: 8 }}>已配置</Tag>
+                                    )}
+                                    <span style={{ color: '#999', marginLeft: 8 }}>
+                                      多数场景由协议画像 builder 处理，无需填写
+                                    </span>
+                                  </span>
+                                )
+                              }}
+                            </Form.Item>
+                          ),
+                          children: (
+                      <div style={{ padding: '0 4px', background: '#fbfbfb', borderRadius: 4 }}>
+                        <Alert
+                          type="info"
+                          showIcon
+                          style={{ marginBottom: 8, fontSize: 12 }}
+                          message="Body 入参怎么填"
+                          description={
+                            <ul style={{ margin: 0, paddingLeft: 18 }}>
+                              <li><strong>API 字段</strong>：写入渠道 HTTP body 的 key（如 model、prompt、content）</li>
+                              <li><strong>取值来源</strong>与<strong>来源配置</strong>一一对应，不再混用同一列</li>
+                              <li>有协议画像 builder 的槽位（如火山视频、APIYI 对话式）<strong>建议留空</strong>，由适配器构建</li>
+                              <li>可点「套用入参模板」按 protocol_slot 填充；curl 导入的示例值会自动标为「固定值」</li>
+                            </ul>
+                          }
+                        />
+                        <div style={{ marginBottom: 8 }}>
                           <Button
                             size="small"
+                            type="link"
+                            onClick={() => {
+                              const list: any[] = form.getFieldValue('endpoints') || []
+                              const slot = list[field.name]?.protocol_slot
+                              const preset = getBodyParamPreset(slot)
+                              if (!preset) {
+                                message.info('当前协议槽位暂无入参模板，可留空由适配器处理')
+                                return
+                              }
+                              const next = [...list]
+                              next[field.name] = {
+                                ...next[field.name],
+                                body_params: preset.params.map((p) => ({ ...p })),
+                              }
+                              form.setFieldsValue({ endpoints: next })
+                              message.success(`已套用「${preset.label}」模板：${preset.hint}`)
+                            }}
+                          >
+                            套用入参模板（按 protocol_slot）
+                          </Button>
+                          <Button
+                            size="small"
+                            type="link"
                             danger
-                            type="text"
-                            icon={<MinusCircleOutlined />}
-                            onClick={() => remove(field.name)}
-                            style={{ marginTop: 2 }}
-                          />
-                        </Col>
-                      </Row>
-
-                      {/* 行内展开的 body_params + headers 配置 */}
-                      <div style={{ marginTop: 8, padding: 8, background: '#fbfbfb', borderRadius: 4, border: '1px dashed #e0e0e0' }}>
-                        {/* Body 参数表 */}
-                        <div style={{ fontSize: 12, color: '#666', marginBottom: 6, fontWeight: 500 }}>
-                          📋 Body 入参
-                          <span style={{ color: '#999', marginLeft: 8, fontWeight: 'normal' }}>
-                            value_type: fixed（固定值，如 true/1024）/ dynamic（从业务参数取值）/ image（图片字段）
-                          </span>
+                            onClick={() => {
+                              const list: any[] = form.getFieldValue('endpoints') || []
+                              const next = [...list]
+                              next[field.name] = { ...next[field.name], body_params: [] }
+                              form.setFieldsValue({ endpoints: next })
+                              message.success('已清空 body 入参，将走适配器 builder')
+                            }}
+                          >
+                            清空（推荐 builder 场景）
+                          </Button>
+                        </div>
+                        <div style={{ display: 'flex', gap: 6, marginBottom: 4, fontSize: 11, color: '#999', paddingLeft: 2 }}>
+                          <span style={{ width: '20%' }}>API 字段</span>
+                          <span style={{ width: '22%' }}>取值来源</span>
+                          <span style={{ flex: 1 }}>来源配置</span>
                         </div>
                         <Form.List {...field} name={[field.name, 'body_params']}>
                           {(bpFields, { add: addBp, remove: removeBp }) => (
                             <>
-                              {bpFields.map((bf, idx) => (
-                                <Row key={bf.key} gutter={6} align="middle" style={{ marginBottom: 4 }}>
-                                  <Col span={5}>
-                                    <Form.Item {...bf} name={[bf.name, 'key']} style={{ marginBottom: 0 }}>
-                                      <Input size="small" placeholder="字段名 如: prompt" />
-                                    </Form.Item>
-                                  </Col>
-                                  <Col span={4}>
-                                    <Form.Item {...bf} name={[bf.name, 'value_type']} style={{ marginBottom: 0 }}>
-                                      <Select size="small" defaultValue="dynamic">
-                                        <Option value="dynamic">dynamic</Option>
-                                        <Option value="fixed">fixed</Option>
-                                        <Option value="image">image</Option>
-                                      </Select>
-                                    </Form.Item>
-                                  </Col>
-                                  <Col span={13}>
-                                    <Form.Item {...bf} name={[bf.name, 'value']} style={{ marginBottom: 0 }}>
-                                      <Input size="small" placeholder={idx === 0 ? '值: 业务字段名 或 固定文本' : '值: 如 prompt / model / true'} />
-                                    </Form.Item>
-                                  </Col>
-                                  <Col span={2} style={{ textAlign: 'right' }}>
-                                    <Button size="small" danger type="text" icon={<MinusCircleOutlined />} onClick={() => removeBp(bf.name)} />
-                                  </Col>
-                                </Row>
+                              {bpFields.map((bf) => (
+                                <Form.Item
+                                  key={bf.key}
+                                  noStyle
+                                  shouldUpdate={(prev, cur) =>
+                                    prev?.endpoints?.[field.name]?.body_params?.[bf.name]?.source
+                                    !== cur?.endpoints?.[field.name]?.body_params?.[bf.name]?.source
+                                  }
+                                >
+                                  {() => {
+                                    const source =
+                                      form.getFieldValue(['endpoints', field.name, 'body_params', bf.name, 'source'])
+                                      || 'task_param'
+                                    return (
+                                      <Row key={bf.key} gutter={6} align="middle" style={{ marginBottom: 6 }}>
+                                        <Col span={5}>
+                                          <Form.Item {...bf} name={[bf.name, 'key']} style={{ marginBottom: 0 }}>
+                                            <Input size="small" placeholder="如 model" />
+                                          </Form.Item>
+                                        </Col>
+                                        <Col span={5}>
+                                          <Form.Item {...bf} name={[bf.name, 'source']} style={{ marginBottom: 0 }}>
+                                            <Select size="small" placeholder="来源">
+                                              {Object.entries(BODY_PARAM_SOURCE_LABELS).map(([k, label]) => (
+                                                <Option key={k} value={k}>{label}</Option>
+                                              ))}
+                                            </Select>
+                                          </Form.Item>
+                                        </Col>
+                                        <Col span={12}>
+                                          {source === BODY_PARAM_SOURCE.LITERAL && (
+                                            <Form.Item {...bf} name={[bf.name, 'literal']} style={{ marginBottom: 0 }}>
+                                              <Input size="small" placeholder="固定字面量，对象/数组可写 JSON" />
+                                            </Form.Item>
+                                          )}
+                                          {(source === BODY_PARAM_SOURCE.TASK_PARAM
+                                            || source === BODY_PARAM_SOURCE.IMAGE_URLS) && (
+                                            <Form.Item {...bf} name={[bf.name, 'param']} style={{ marginBottom: 0 }}>
+                                              <Input
+                                                size="small"
+                                                placeholder={
+                                                  source === BODY_PARAM_SOURCE.IMAGE_URLS
+                                                    ? '任务参数字段，默认 images'
+                                                    : '任务参数字段，留空=与 API 字段同名'
+                                                }
+                                              />
+                                            </Form.Item>
+                                          )}
+                                          {source === BODY_PARAM_SOURCE.BUILTIN && (
+                                            <Form.Item {...bf} name={[bf.name, 'builtin']} style={{ marginBottom: 0 }}>
+                                              <Select size="small" placeholder="内置变量">
+                                                {BUILTIN_OPTIONS.map((o) => (
+                                                  <Option key={o.value} value={o.value}>{o.label}</Option>
+                                                ))}
+                                              </Select>
+                                            </Form.Item>
+                                          )}
+                                          {source === BODY_PARAM_SOURCE.CHAT_MESSAGES && (
+                                            <span style={{ fontSize: 11, color: '#888', lineHeight: '24px' }}>
+                                              自动由 prompt + images 组装 messages
+                                            </span>
+                                          )}
+                                        </Col>
+                                        <Col span={2} style={{ textAlign: 'right' }}>
+                                          <Button
+                                            size="small"
+                                            danger
+                                            type="text"
+                                            icon={<MinusCircleOutlined />}
+                                            onClick={() => removeBp(bf.name)}
+                                          />
+                                        </Col>
+                                      </Row>
+                                    )
+                                  }}
+                                </Form.Item>
                               ))}
                               <Button
                                 size="small"
                                 type="dashed"
-                                onClick={() => addBp({ key: '', value_type: 'dynamic', value: '' })}
+                                onClick={() => addBp(createEmptyBodyParam())}
                                 style={{ width: '100%', marginTop: 2 }}
                               >
-                                + 添加 body 参数
+                                + 添加入参映射
                               </Button>
                             </>
                           )}
@@ -955,6 +1225,9 @@ export default function ChannelAdmin() {
                           </Form.List>
                         </div>
                       </div>
+                          ),
+                        }]}
+                      />
                     </div>
                   ))}
 
@@ -1027,32 +1300,34 @@ export default function ChannelAdmin() {
             </Panel>
           </Collapse>
         </Form>
-      </Modal>
 
-      {/* curl 粘贴识别浮窗 */}
-      <Modal
-        title="📋 粘贴 curl 识别端点"
-        open={curlModalVisible}
-        onCancel={() => {
-          setCurlModalVisible(false)
-          setCurlText('')
-        }}
-        onOk={handleParseCurlFromModal}
-        width={720}
-        okText="🔍 解析并添加端点"
-        cancelText="取消"
-      >
-        <div style={{ marginBottom: 12, color: '#666', fontSize: 13 }}>
-          粘贴 curl 命令，系统自动识别 <b>header</b> 和 <b>body 参数</b> 生成端点配置。
-          <span style={{ color: '#999', marginLeft: 8 }}>（不影响 base_url 和 API Key）</span>
-        </div>
-        <TextArea
-          value={curlText}
-          onChange={(e) => setCurlText(e.target.value)}
-          rows={12}
-          style={{ fontFamily: 'Menlo, Consolas, monospace', fontSize: 12 }}
-          placeholder={`示例：\ncurl https://api.weelink.ai/v1/chat/completions \\\n  -H "Authorization: Bearer YOUR_API_KEY" \\\n  -H "Content-Type: application/json" \\\n  -d "{\\\"model\\\": \\\"gpt-4o\\\", \\\"messages\\\": [{\\\"role\\\": \\\"user\\\", \\\"content\\\": \\\"hi\\\"}]}"\n\n或 multipart/form-data 格式：\ncurl https://api.example.com/v1/images/edits \\\n  -H "Authorization: Bearer YOUR_API_KEY" \\\n  -F "model=gpt-image-2" \\\n  -F "prompt=Place the product into the scene"`}
-        />
+        {/* curl 粘贴识别：嵌套在编辑弹窗内，避免被父级 Modal 遮挡 */}
+        <Modal
+          title="📋 粘贴 curl 识别端点"
+          open={curlModalVisible}
+          zIndex={2000}
+          onCancel={() => {
+            setCurlModalVisible(false)
+            setCurlText('')
+          }}
+          onOk={handleParseCurlFromModal}
+          width={720}
+          okText="🔍 解析并添加端点"
+          cancelText="取消"
+          destroyOnClose
+        >
+          <div style={{ marginBottom: 12, color: '#666', fontSize: 13 }}>
+            粘贴 curl 命令，系统自动识别 <b>header</b> 和 <b>body 参数</b> 生成端点配置。
+            <span style={{ color: '#999', marginLeft: 8 }}>（不影响 base_url 和 API Key）</span>
+          </div>
+          <TextArea
+            value={curlText}
+            onChange={(e) => setCurlText(e.target.value)}
+            rows={12}
+            style={{ fontFamily: 'Menlo, Consolas, monospace', fontSize: 12 }}
+            placeholder={`示例：\ncurl https://api.weelink.ai/v1/chat/completions \\\n  -H "Authorization: Bearer YOUR_API_KEY" \\\n  -H "Content-Type: application/json" \\\n  -d "{\\\"model\\\": \\\"gpt-4o\\\", \\\"messages\\\": [{\\\"role\\\": \\\"user\\\", \\\"content\\\": \\\"hi\\\"}]}"\n\n或 multipart/form-data 格式：\ncurl https://api.example.com/v1/images/edits \\\n  -H "Authorization: Bearer YOUR_API_KEY" \\\n  -F "model=gpt-image-2" \\\n  -F "prompt=Place the product into the scene"`}
+          />
+        </Modal>
       </Modal>
 
       <Modal
@@ -1091,7 +1366,10 @@ export default function ChannelAdmin() {
               <div style={{ marginTop: 8 }}>
                 {viewItem.endpoints.map((ep: any, idx: number) => (
                   <div key={idx} style={{ background: '#f9f9f9', padding: 12, marginBottom: 8, borderRadius: 6 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                      {ep.protocol_slot && (
+                        <Tag color="geekblue"><code>{ep.protocol_slot}</code></Tag>
+                      )}
                       <Tag color={endpointTypeMap[ep.type]?.color}>{endpointTypeMap[ep.type]?.label}</Tag>
                       <Tag color="blue">{ep.method}</Tag>
                       <code>{ep.endpoint}</code>
@@ -1107,6 +1385,12 @@ export default function ChannelAdmin() {
           </div>
         )}
       </Modal>
+      <IntegrationDebugDrawer
+        open={!!debugChannel}
+        onClose={() => setDebugChannel(null)}
+        perspective="channel"
+        channel={debugChannel}
+      />
     </div>
   )
 }

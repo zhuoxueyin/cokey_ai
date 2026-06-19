@@ -1,6 +1,39 @@
 import axios from 'axios'
-import type { AxiosInstance, AxiosRequestConfig, AxiosResponse } from 'axios'
+import type { AxiosInstance, AxiosResponse } from 'axios'
 import { message } from 'antd'
+
+function extractErrorMessage(error: any): string {
+  const data = error?.response?.data
+  if (!data) return error?.message || '网络异常'
+  if (typeof data.detail === 'string') return data.detail
+  if (data.message) return data.message
+  if (Array.isArray(data.detail)) {
+    return data.detail.map((d: any) => d?.msg || String(d)).join('; ')
+  }
+  return '请求失败'
+}
+
+function handleUnauthorized(error: any) {
+  if (error?.response?.status !== 401) return
+  if (window.location.pathname === '/login') return
+  localStorage.removeItem('token')
+  localStorage.removeItem('user')
+  message.error(extractErrorMessage(error) || '登录已过期，请重新登录')
+  window.location.href = '/login'
+}
+
+const attachAuthHeader = (instance: AxiosInstance) => {
+  instance.interceptors.request.use(
+    (config: any) => {
+      const token = localStorage.getItem('token')
+      if (token && config.headers) {
+        config.headers['Authorization'] = `Bearer ${token}`
+      }
+      return config
+    },
+    (error) => Promise.reject(error),
+  )
+}
 
 const service: AxiosInstance = axios.create({
   baseURL: '/api',
@@ -34,25 +67,15 @@ longRunningService.interceptors.response.use(
     return response.data
   },
   (error) => {
-    const msg = error.response?.data?.message || error.message || '网络异常'
-    message.error(msg)
+    handleUnauthorized(error)
+    message.error(extractErrorMessage(error))
     return Promise.reject(error)
   }
 )
 
-service.interceptors.request.use(
-  (config: any) => {
-    // 自动添加JWT令牌
-    const token = localStorage.getItem('token')
-    if (token && config.headers) {
-      config.headers['Authorization'] = `Bearer ${token}`
-    }
-    return config
-  },
-  (error) => {
-    return Promise.reject(error)
-  }
-)
+attachAuthHeader(longRunningService)
+
+attachAuthHeader(service)
 
 service.interceptors.response.use(
   (response: AxiosResponse) => {
@@ -68,8 +91,8 @@ service.interceptors.response.use(
     return response.data
   },
   (error) => {
-    const msg = error.response?.data?.message || error.message || '网络异常'
-    message.error(msg)
+    handleUnauthorized(error)
+    message.error(extractErrorMessage(error))
     return Promise.reject(error)
   }
 )

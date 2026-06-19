@@ -26,6 +26,8 @@ export interface ModelItem {
   sort_order?: number
   created_at?: string
   updated_at?: string
+  /** 主渠道失败时是否降级到备用渠道，默认 true */
+  allow_channel_fallback?: boolean
   supported_inputs?: {
     image?: boolean
     video?: boolean
@@ -57,6 +59,10 @@ export interface ChannelBinding {
   channel_model_id: string
   priority: number
   status: string
+  supported_modes?: string[]
+  mode_profiles?: Record<string, string>
+  protocol_profile_id?: string
+  fallback?: boolean
 }
 
 export interface TaskItem {
@@ -87,6 +93,44 @@ export interface TaskResult {
   choices?: any[]
 }
 
+export interface TraceLogStep {
+  step: string
+  level?: string
+  timestamp?: string
+  data?: Record<string, any>
+}
+
+export interface TraceLogChannelAttempt {
+  channel_code: string
+  channel_model_id?: string
+  endpoint_type?: string
+  success?: boolean
+  request?: Record<string, any>
+  response?: Record<string, any>
+  error_code?: string
+  error_message?: string
+  duration_ms?: number
+}
+
+export interface TraceLogItem {
+  log_id: string
+  trace_id: string
+  task_id?: string
+  session_id?: string
+  model_code?: string
+  category?: string
+  user_id?: string
+  status: string
+  channel_code?: string
+  duration_ms?: number
+  error_message?: string
+  steps: TraceLogStep[]
+  channel_attempts: TraceLogChannelAttempt[]
+  step_count?: number
+  created_at?: string
+  updated_at?: string
+}
+
 export interface GenerateRequest {
   model_code: string
   category: 'text' | 'image' | 'video'
@@ -110,20 +154,32 @@ export interface ResponseMapping {
 /**
  * Body 入参定义（新格式，推荐使用）
  *
- * value_type:
- *   - 'fixed': 固定值，由配置者填写
- *   - 'dynamic': 动态参数，由前端/业务层传入。value 填写业务层字段名
- *   - 'image': 图片类型，从业务传入的 images 中获取，自动 CDN 化
+ * 新格式：source 区分取值来源；literal / param / builtin 各司其职
+ * 旧格式 value_type + value 仍兼容
  */
+export type BodyParamSource =
+  | 'literal'
+  | 'task_param'
+  | 'builtin'
+  | 'image_urls'
+  | 'chat_messages'
+
 export interface BodyParam {
   key: string
-  value_type: 'fixed' | 'dynamic' | 'image'
-  value: string
+  source?: BodyParamSource
+  literal?: string
+  param?: string
+  builtin?: string
+  /** @deprecated */
+  value_type?: 'fixed' | 'dynamic' | 'image'
+  /** @deprecated */
+  value?: string
   description?: string
 }
 
 export interface EndpointConfig {
   type: string
+  protocol_slot?: string
   endpoint: string
   method: string
   description?: string
@@ -186,6 +242,22 @@ export interface ChannelRateLimitConfig {
   requests_per_minute?: number
   requests_per_hour?: number
   requests_per_day?: number
+}
+
+export interface ProtocolProfileItem {
+  id: string
+  profile_id: string
+  name: string
+  provider?: string
+  protocol_slot: string
+  invocation_mode: string
+  endpoint_type: string
+  status?: string
+  is_builtin?: boolean
+  http?: { path: string; method: string; content_type: string }
+  request?: { builder?: string; size_strategy?: string }
+  response?: { parser?: string }
+  description?: string
 }
 
 export interface TaskStats {

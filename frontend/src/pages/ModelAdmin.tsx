@@ -25,10 +25,10 @@ import {
   EditOutlined,
   DeleteOutlined,
   ReloadOutlined,
-  SettingOutlined,
   EyeOutlined,
   CodeOutlined,
   CopyOutlined,
+  BugOutlined,
 } from '@ant-design/icons'
 import {
   listModelsAdmin,
@@ -37,8 +37,12 @@ import {
   deleteModelAdmin,
   setModelStatus,
   listChannelsAdmin,
+  listProtocolProfilesAdmin,
 } from '@/api'
 import type { ModelItem, ParamField, ChannelBinding, ChannelItem } from '@/types'
+import ChannelBindingEditor from '@/components/ChannelBindingEditor'
+import IntegrationDebugDrawer from '@/components/IntegrationDebugDrawer'
+import { BUILTIN_PROFILE_OPTIONS } from '@/constants/onboarding'
 
 const { TextArea } = Input
 const { Option } = Select
@@ -65,6 +69,7 @@ interface ModelFormData {
   status: 'online' | 'offline' | 'maintenance'
   sort_order: number
   is_default: boolean
+  allow_channel_fallback?: boolean
   supported_inputs?: {
     image?: boolean
     video?: boolean
@@ -86,6 +91,9 @@ export default function ModelAdmin() {
   const [form] = Form.useForm<ModelFormData>()
   const [channelList, setChannelList] = useState<ChannelItem[]>([])
   const [bindings, setBindings] = useState<ChannelBinding[]>([])
+  const [profileOptions, setProfileOptions] = useState(BUILTIN_PROFILE_OPTIONS)
+  const [debugModel, setDebugModel] = useState<ModelItem | null>(null)
+  const categoryWatch = Form.useWatch('category', form)
 
   const fetchChannels = async () => {
     try {
@@ -93,6 +101,26 @@ export default function ModelAdmin() {
       setChannelList(res.data || [])
     } catch (e) {
       console.error(e)
+    }
+  }
+
+  const fetchProfiles = async () => {
+    try {
+      const res = await listProtocolProfilesAdmin({ page: 1, page_size: 100 })
+      if (res.code === 'success' && res.data?.length) {
+        const fromApi = res.data.map((p) => ({
+          value: p.profile_id,
+          label: `${p.name} (${p.profile_id})`,
+          mode: p.invocation_mode,
+        }))
+        const seen = new Set(fromApi.map((x) => x.value))
+        setProfileOptions([
+          ...fromApi,
+          ...BUILTIN_PROFILE_OPTIONS.filter((b) => !seen.has(b.value)),
+        ])
+      }
+    } catch {
+      /* builtin fallback */
     }
   }
 
@@ -126,6 +154,7 @@ export default function ModelAdmin() {
       status: 'online',
       sort_order: 0,
       is_default: false,
+      allow_channel_fallback: true,
       supported_inputs: {
         image: false,
         video: false,
@@ -133,7 +162,7 @@ export default function ModelAdmin() {
       },
     })
     setBindings([])
-    await fetchChannels()
+    await Promise.all([fetchChannels(), fetchProfiles()])
     setModalVisible(true)
   }
 
@@ -150,39 +179,12 @@ export default function ModelAdmin() {
       status: record.status || 'online',
       sort_order: record.sort_order || 0,
       is_default: record.is_default || false,
+      allow_channel_fallback: record.allow_channel_fallback !== false,
       supported_inputs: inputs,
     })
     setBindings(record.channel_bindings ? [...record.channel_bindings] : [])
-    await fetchChannels()
+    await Promise.all([fetchChannels(), fetchProfiles()])
     setModalVisible(true)
-  }
-
-  const addBinding = () => {
-    const defaultChannel = channelList.find((c) => c.status === 'active') || channelList[0]
-    if (!defaultChannel) {
-      message.warning('请先创建一个可用的渠道')
-      return
-    }
-    setBindings([
-      ...bindings,
-      {
-        channel_code: defaultChannel.channel_code,
-        channel_model_id: '',
-        priority: 10,
-        status: 'active',
-      },
-    ])
-  }
-
-  const updateBinding = (idx: number, patch: Partial<ChannelBinding>) => {
-    const next = [...bindings]
-    next[idx] = { ...next[idx], ...patch }
-    setBindings(next)
-  }
-
-  const removeBinding = (idx: number) => {
-    const next = bindings.filter((_, i) => i !== idx)
-    setBindings(next)
   }
 
   const handleDelete = async (record: ModelItem) => {
@@ -209,10 +211,11 @@ export default function ModelAdmin() {
       status: 'offline',
       sort_order: record.sort_order || 0,
       is_default: false,
+      allow_channel_fallback: record.allow_channel_fallback !== false,
       supported_inputs: inputs,
     })
     setBindings(record.channel_bindings ? record.channel_bindings.map(b => ({ ...b, status: 'inactive' })) : [])
-    await fetchChannels()
+    await Promise.all([fetchChannels(), fetchProfiles()])
     setModalVisible(true)
   }
 
@@ -222,12 +225,23 @@ export default function ModelAdmin() {
 
       const cleanedBindings = bindings
         .filter((b) => b.channel_code && b.channel_model_id && b.channel_model_id.trim())
-        .map((b) => ({
-          channel_code: b.channel_code,
-          channel_model_id: b.channel_model_id.trim(),
-          priority: typeof b.priority === 'number' ? b.priority : 10,
-          status: b.status || 'active',
-        }))
+        .map((b) => {
+          const item: ChannelBinding = {
+            channel_code: b.channel_code,
+            channel_model_id: b.channel_model_id.trim(),
+            priority: typeof b.priority === 'number' ? b.priority : 10,
+            status: b.status || 'active',
+          }
+          if (b.mode_profiles && Object.keys(b.mode_profiles).length > 0) {
+            item.mode_profiles = Object.fromEntries(
+              Object.entries(b.mode_profiles).filter(([, v]) => v?.trim()),
+            )
+          }
+          if (b.supported_modes?.length) item.supported_modes = b.supported_modes
+          if (b.protocol_profile_id) item.protocol_profile_id = b.protocol_profile_id
+          if (b.fallback !== undefined) item.fallback = b.fallback
+          return item
+        })
 
       const payload: any = {
         model_code: values.model_code,
@@ -237,6 +251,7 @@ export default function ModelAdmin() {
         status: values.status,
         sort_order: values.sort_order,
         is_default: values.is_default,
+        allow_channel_fallback: values.allow_channel_fallback !== false,
         supported_inputs: {
           image: !!values.supported_inputs?.image,
           video: !!values.supported_inputs?.video,
@@ -333,13 +348,19 @@ export default function ModelAdmin() {
       key: 'bindings',
       width: 120,
       render: (_: any, r: ModelItem) => {
-        const count = r.channel_bindings?.length || 0
-        const active = (r.channel_bindings || []).filter((b) => b.status === 'active').length
+        const list = r.channel_bindings || []
+        const count = list.length
+        const active = list.filter((b) => b.status === 'active').length
+        const withProfiles = list.filter((b) => b.mode_profiles && Object.keys(b.mode_profiles).length > 0).length
         if (count === 0) return <Tag color="red">未绑定</Tag>
         return (
-          <Space size={2}>
+          <Space size={2} wrap>
             <Tag color="green">{active} 启用</Tag>
-            <Tag>{count - active} 禁用</Tag>
+            {withProfiles > 0 ? (
+              <Tag color="blue">{withProfiles} 已配路由</Tag>
+            ) : (
+              <Tag color="orange">推断路由</Tag>
+            )}
           </Space>
         )
       },
@@ -354,10 +375,13 @@ export default function ModelAdmin() {
     {
       title: '操作',
       key: 'actions',
-      width: 220,
+      width: 260,
       fixed: 'right',
       render: (_, r) => (
         <Space size="small">
+          <Tooltip title="调试">
+            <Button size="small" icon={<BugOutlined />} onClick={() => setDebugModel(r)} />
+          </Tooltip>
           <Tooltip title="查看详情">
             <Button size="small" icon={<EyeOutlined />} onClick={() => setViewItem(r)} />
           </Tooltip>
@@ -428,7 +452,6 @@ export default function ModelAdmin() {
             onChange: (p, ps) => { setPage(p); setPageSize(ps) },
             showSizeChanger: true,
             showQuickJumper: true,
-            showTotal: (t) => `共 ${t} 条`,
           }}
           scroll={{ x: 1200 }}
         />
@@ -439,7 +462,7 @@ export default function ModelAdmin() {
         open={modalVisible}
         onOk={handleSubmit}
         onCancel={() => setModalVisible(false)}
-        width={760}
+        width={860}
         okText="保存"
         cancelText="取消"
         destroyOnClose
@@ -510,84 +533,23 @@ export default function ModelAdmin() {
           </Card>
 
           {/* 渠道绑定 */}
-          <Card size="small" title="渠道绑定" style={{ marginBottom: 12 }}>
-            <div style={{ marginBottom: 12 }}>
-              <Space>
-                <Button type="primary" onClick={addBinding}>+ 绑定渠道</Button>
-                <span style={{ color: '#888', fontSize: 12 }}>
-                  按优先级从高到低路由；填写渠道内的模型 ID
-                </span>
-              </Space>
-            </div>
-            {bindings.length === 0 && (
-              <Empty
-                description="还没有绑定渠道"
-                style={{ margin: '12px 0 16px' }}
-                image={Empty.PRESENTED_IMAGE_SIMPLE}
-              />
-            )}
-            {bindings.map((b, idx) => (
-              <Card
-                key={idx}
-                size="small"
-                style={{ marginBottom: 8 }}
-                title={
-                  <Space>
-                    <span>绑定 #{idx + 1}</span>
-                    {b.status === 'active' && <Tag color="green" style={{ margin: 0 }}>启用</Tag>}
-                    {b.status !== 'active' && <Tag color="default" style={{ margin: 0 }}>禁用</Tag>}
-                  </Space>
-                }
-                extra={
-                  <Button size="small" danger type="text" onClick={() => removeBinding(idx)}>删除</Button>
-                }
-              >
-                <Row gutter={12}>
-                  <Col span={10}>
-                    <div style={{ fontSize: 12, color: '#666', marginBottom: 4 }}>渠道</div>
-                    <Select
-                      value={b.channel_code}
-                      onChange={(val) => updateBinding(idx, { channel_code: val })}
-                      style={{ width: '100%' }}
-                    >
-                      {channelList.map((c) => (
-                        <Option key={c.channel_code} value={c.channel_code}>
-                          {c.channel_name}
-                          {c.status === 'active' ? '' : ' (已禁用)'}
-                        </Option>
-                      ))}
-                    </Select>
-                  </Col>
-                  <Col span={10}>
-                    <div style={{ fontSize: 12, color: '#666', marginBottom: 4 }}>渠道内模型 ID</div>
-                    <Input
-                      placeholder="如: gpt-5.5 / gemini-2.5-flash"
-                      value={b.channel_model_id}
-                      onChange={(e) => updateBinding(idx, { channel_model_id: e.target.value })}
-                    />
-                  </Col>
-                  <Col span={4}>
-                    <div style={{ fontSize: 12, color: '#666', marginBottom: 4 }}>优先级</div>
-                    <InputNumber
-                      value={b.priority}
-                      onChange={(val) => updateBinding(idx, { priority: Number(val) || 0 })}
-                      style={{ width: '100%' }}
-                    />
-                  </Col>
-                  <Col span={4}>
-                    <div style={{ fontSize: 12, color: '#666', marginBottom: 4 }}>状态</div>
-                    <Select
-                      value={b.status}
-                      onChange={(val) => updateBinding(idx, { status: val })}
-                      style={{ width: '100%' }}
-                    >
-                      <Option value="active">启用</Option>
-                      <Option value="inactive">禁用</Option>
-                    </Select>
-                  </Col>
-                </Row>
-              </Card>
-            ))}
+          <Card size="small" title="渠道绑定与协议路由" style={{ marginBottom: 12 }}>
+            <Form.Item
+              name="allow_channel_fallback"
+              label="渠道降级"
+              valuePropName="checked"
+              tooltip="开启后，主渠道（最高 priority）失败时自动尝试下一个绑定渠道"
+              style={{ marginBottom: 12 }}
+            >
+              <Switch checkedChildren="允许降级" unCheckedChildren="禁止降级" />
+            </Form.Item>
+            <ChannelBindingEditor
+              bindings={bindings}
+              channelList={channelList}
+              profileOptions={profileOptions}
+              category={(categoryWatch || form.getFieldValue('category') || 'text') as 'text' | 'image' | 'video'}
+              onChange={setBindings}
+            />
           </Card>
         </Form>
       </Modal>
@@ -667,13 +629,29 @@ export default function ModelAdmin() {
             {viewItem.channel_bindings && viewItem.channel_bindings.length > 0 && (
               <>
                 <Divider style={{ margin: '12px 0' }}>渠道绑定</Divider>
+                <div style={{ marginBottom: 8, fontSize: 13 }}>
+                  渠道降级：
+                  <Tag color={viewItem.allow_channel_fallback !== false ? 'green' : 'orange'}>
+                    {viewItem.allow_channel_fallback !== false ? '允许（默认）' : '禁止'}
+                  </Tag>
+                </div>
                 {viewItem.channel_bindings.map((cb: ChannelBinding, i: number) => (
                   <Card key={i} size="small" style={{ marginBottom: 8 }}>
                     <Row gutter={8}>
                       <Col span={8}><code>{cb.channel_code}</code></Col>
-                      <Col span={10}>模型ID: {cb.channel_model_id}</Col>
-                      <Col span={6}>优先级: {cb.priority}</Col>
+                      <Col span={8}>模型ID: {cb.channel_model_id}</Col>
+                      <Col span={4}>优先级: {cb.priority}</Col>
+                      <Col span={4}>{cb.status}</Col>
                     </Row>
+                    {cb.mode_profiles && Object.keys(cb.mode_profiles).length > 0 && (
+                      <div style={{ marginTop: 8, fontSize: 12 }}>
+                        {Object.entries(cb.mode_profiles).map(([mode, pid]) => (
+                          <div key={mode}>
+                            <Tag>{mode}</Tag> → <code>{pid}</code>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </Card>
                 ))}
               </>
@@ -681,6 +659,12 @@ export default function ModelAdmin() {
           </div>
         )}
       </Modal>
+      <IntegrationDebugDrawer
+        open={!!debugModel}
+        onClose={() => setDebugModel(null)}
+        perspective="model"
+        model={debugModel}
+      />
     </div>
   )
 }

@@ -18,12 +18,12 @@ class AuthService:
 
     async def create_token(self, user_id: str, username: str) -> str:
         """生成JWT令牌"""
-        expire = datetime.utcnow() + timedelta(minutes=30)
+        expire = datetime.utcnow() + timedelta(minutes=settings.jwt_expire_minutes)
         payload = {
             "uid": user_id,
             "username": username,
             "iat": datetime.utcnow(),
-            "exp": expire
+            "exp": expire,
         }
         return jwt.encode(payload, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
 

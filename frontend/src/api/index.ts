@@ -1,5 +1,5 @@
 import request, { longRunningService } from './request'
-import type { ApiResponse, PaginatedResponse, ModelItem, TaskItem, TaskResult, ChannelItem, TaskStats, AssetItem, AssetListResponse } from '@/types'
+import type { ApiResponse, PaginatedResponse, ModelItem, TaskItem, TaskResult, ChannelItem, TaskStats, AssetItem, AssetListResponse, TraceLogItem, ProtocolProfileItem } from '@/types'
 
 export interface PaginatedParams {
   page?: number
@@ -8,6 +8,7 @@ export interface PaginatedParams {
   status?: string
   session_id?: string
   model_code?: string
+  channel_code?: string
   sort_by?: string
   sort_order?: number
   time_range?: string  // 时间范围：1h, 6h, 24h, 7d, 30d, all
@@ -115,6 +116,14 @@ export const uploadFile = (file: File): Promise<ApiResponse<{ url: string; file_
   })
 }
 
+export const listProtocolProfilesAdmin = (params?: PaginatedParams & {
+  provider?: string
+  invocation_mode?: string
+  include_builtin?: boolean
+}): Promise<PaginatedResponse<ProtocolProfileItem>> => {
+  return request.get('/admin/protocol-profiles', { params })
+}
+
 export const listModelsAdmin = (params?: PaginatedParams): Promise<PaginatedResponse<ModelItem>> => {
   return request.get('/admin/models', { params })
 }
@@ -167,12 +176,55 @@ export const setChannelStatus = (channel_id: string, status: 'active' | 'inactiv
   return request.post(`/admin/channels/${channel_id}/status`, { status })
 }
 
-export const listTasksAdmin = (params?: PaginatedParams): Promise<PaginatedResponse<TaskItem>> => {
+export interface ChannelDebugParams {
+  endpoint_type: string
+  channel_model_id: string
+  params?: Record<string, unknown>
+  category?: 'text' | 'image' | 'video'
+}
+
+export interface ChannelDebugResult {
+  trace_id: string
+  success: boolean
+  duration_ms?: number
+  channel_code?: string
+  endpoint_type?: string
+  channel_model_id?: string
+  category?: string
+  result?: unknown
+  error_code?: string
+  error_message?: string
+  http_request?: Record<string, unknown>
+}
+
+export const debugChannelAdmin = (
+  channel_id: string,
+  data: ChannelDebugParams,
+): Promise<ApiResponse<ChannelDebugResult>> => {
+  return longRunningService.post(`/admin/channels/${channel_id}/debug`, data)
+}
+
+export const listTasksAdmin = (params?: PaginatedParams & {
+  task_id?: string
+  trace_id?: string
+}): Promise<PaginatedResponse<TaskItem>> => {
   return request.get('/admin/tasks', { params })
 }
 
 export const getTaskAdmin = (task_id: string): Promise<ApiResponse<TaskItem>> => {
   return request.get(`/admin/tasks/${task_id}`)
+}
+
+export const listTraceLogsAdmin = (params?: PaginatedParams & {
+  trace_id?: string
+  task_id?: string
+  channel_code?: string
+}): Promise<PaginatedResponse<TraceLogItem>> => {
+  return request.get('/admin/trace-logs', { params })
+}
+
+export const getTraceLogAdmin = (trace_id: string): Promise<ApiResponse<TraceLogItem>> => {
+  return request.get(`/admin/trace-logs/${trace_id}`)
 }
 
 export const getTaskStatsAdmin = (params?: { start_time?: string; end_time?: string; category?: string }): Promise<ApiResponse<TaskStats>> => {
@@ -206,7 +258,7 @@ export const getProfile = (): Promise<ApiResponse<UserInfo>> => {
 }
 
 export const updateProfile = (data: { nickname?: string; avatar_url?: string }): Promise<ApiResponse<UserInfo>> => {
-  return request.put('/user/profile', data)
+  return request.post('/user/profile/update', data)
 }
 
 export const updatePassword = (old_password: string, new_password: string): Promise<ApiResponse<void>> => {

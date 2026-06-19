@@ -45,6 +45,22 @@ class ChannelBinding(BaseModel):
     channel_model_id: str
     priority: int = 1
     status: str = "active"
+    supported_modes: Optional[List[str]] = Field(
+        default=None,
+        description="支持的任务模式: text_chat/text_to_image/image_to_image/...；空则按 category 默认",
+    )
+    mode_profiles: Optional[Dict[str, str]] = Field(
+        default=None,
+        description="任务模式 → 协议画像 profile_id，如 text_to_image → apiyi.gpt-image-2-vip.text_to_image",
+    )
+    protocol_profile_id: Optional[str] = Field(
+        default=None,
+        description="单画像兜底（所有模式共用，不推荐）",
+    )
+    fallback: Optional[bool] = Field(
+        default=None,
+        description="本绑定失败是否参与降级；None 沿用模型级 allow_channel_fallback",
+    )
 
 
 class SupportedInputs(BaseModel):
@@ -67,6 +83,10 @@ class ModelBase(BaseModel):
     sort_order: int = 0
     is_default: bool = False
     supported_inputs: Optional[SupportedInputs] = None
+    allow_channel_fallback: bool = Field(
+        default=True,
+        description="主渠道失败时是否按 priority 降级到备用渠道；默认开启",
+    )
 
 
 class ModelCreate(ModelBase):
@@ -85,6 +105,7 @@ class ModelUpdate(BaseModel):
     sort_order: Optional[int] = None
     is_default: Optional[bool] = None
     supported_inputs: Optional[SupportedInputs] = None
+    allow_channel_fallback: Optional[bool] = None
 
 
 class ModelResponse(BaseModel):
@@ -101,6 +122,7 @@ class ModelResponse(BaseModel):
     sort_order: int
     is_default: bool
     supported_inputs: Optional[SupportedInputs] = None
+    allow_channel_fallback: bool = True
     created_at: datetime
     updated_at: datetime
 

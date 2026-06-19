@@ -23,6 +23,21 @@ def generate_session_id() -> str:
     return f"sess_{uuid.uuid4().hex}"
 
 
+def generate_project_id() -> str:
+    import uuid
+    return f"proj_{uuid.uuid4().hex}"
+
+
+def generate_canvas_node_id() -> str:
+    import uuid
+    return f"cnode_{uuid.uuid4().hex}"
+
+
+def generate_canvas_edge_id() -> str:
+    import uuid
+    return f"cedge_{uuid.uuid4().hex}"
+
+
 def generate_uuid() -> str:
     import uuid
     return uuid.uuid4().hex

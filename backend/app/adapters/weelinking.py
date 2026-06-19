@@ -23,6 +23,7 @@ from app.core.cdn import (
     is_cdn_url,
     require_cdn_url,
 )
+from app.core.weelinking_image import normalize_weelinking_gpt_image_body
 from app.utils.url_utils import join_url
 
 logger = get_logger()
@@ -118,6 +119,16 @@ async def _ensure_cdn_url(url: str, trace_id: str = "") -> str:
         return url
 
 
+# 图像/视频在渠道侧常为长连接等待；DB 若配 30s 会导致「渠道已成功、平台读超时失败」
+_CATEGORY_MIN_READ_TIMEOUT = {
+    "image": 300,
+    "image_edits": 300,
+    "chat": 300,
+    "video": 600,
+    "video_image": 600,
+}
+
+
 class WeelinkingAdapter(BaseChannelAdapter):
     """Weelink 渠道适配器 - 使用原生 HTTP 请求，精确控制路径与参数
 
@@ -130,6 +141,7 @@ class WeelinkingAdapter(BaseChannelAdapter):
     def __init__(self, channel_config: Dict[str, Any], trace_id: str):
         super().__init__(channel_config, trace_id)
         self.timeout = self.retry_config.get("timeout", 60)
+        self._active_category = "text"
         self.api_config = channel_config.get("api_config", {
             "text_path": "/chat/completions",
             "image_path": "/images/generations",
@@ -138,6 +150,25 @@ class WeelinkingAdapter(BaseChannelAdapter):
             "text_stream": True,
             "image_api_type": "generations",  # generations 或 edits
         })
+
+    def _http_timeout(self) -> httpx.Timeout:
+        """读超时按分类保底，避免生图在渠道完成后平台已断开。"""
+        configured = int(self.retry_config.get("timeout", 60) or 60)
+        floor = _CATEGORY_MIN_READ_TIMEOUT.get(self._active_category, 60)
+        read_seconds = max(configured, floor)
+        if read_seconds > configured:
+            logger.info(
+                f"[{self.trace_id}] 读超时 {configured}s → {read_seconds}s "
+                f"(category={self._active_category})"
+            )
+        return httpx.Timeout(connect=30.0, read=float(read_seconds), write=60.0, pool=30.0)
+
+    @staticmethod
+    def _format_request_error(exc: Exception) -> str:
+        if isinstance(exc, httpx.TimeoutException):
+            return f"{type(exc).__name__}: 等待渠道响应超时（渠道可能仍在生成）"
+        msg = str(exc).strip()
+        return msg or f"{type(exc).__name__}: 未知网络错误"
 
     async def convert_params(self, model_config: Dict[str, Any], params: Dict[str, Any], endpoint_config: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         # 如果有端点配置，检查是否需要应用请求体规范
@@ -178,6 +209,8 @@ class WeelinkingAdapter(BaseChannelAdapter):
             "timestamp": time.time()
         }
 
+        await self._flush_outgoing_request_log()
+
         logger.info(f"[{self.trace_id}] ═════════ POST {url}")
         try:
             safe_body = {k: v for k, v in body.items() if k != "api_key"}
@@ -190,7 +223,7 @@ class WeelinkingAdapter(BaseChannelAdapter):
 
         for attempt in range(max_retries):
             try:
-                async with httpx.AsyncClient(timeout=self.timeout) as client:
+                async with httpx.AsyncClient(timeout=self._http_timeout()) as client:
                     response = await client.post(url, json=body, headers=headers)
 
                 logger.info(f"[{self.trace_id}] HTTP {response.status_code} 响应 (attempt {attempt+1})")
@@ -221,7 +254,10 @@ class WeelinkingAdapter(BaseChannelAdapter):
                         raise Exception(f"HTTP {response.status_code}: {err_msg}")
             except Exception as e:
                 last_error = e
-                logger.warning(f"[{self.trace_id}] HTTP 请求失败 (attempt {attempt+1}): {e}")
+                logger.warning(
+                    f"[{self.trace_id}] HTTP 请求失败 (attempt {attempt+1}): "
+                    f"{self._format_request_error(e)}"
+                )
                 if attempt < max_retries - 1:
                     wait_time = self.retry_config.get("retry_delay", 2)
                     time.sleep(wait_time)
@@ -254,14 +290,9 @@ class WeelinkingAdapter(BaseChannelAdapter):
         api_key: str,
         extra_headers: Optional[Dict[str, str]] = None,
     ) -> Dict[str, Any]:
-        """使用 multipart/form-data 发送请求（支持 images[] 等文件字段）
+        """使用 multipart/form-data 发送请求（支持多张 images[] 参考图）
 
-        Args:
-            url: 请求地址
-            fields: 普通文本字段，如 {"model": "gpt-image-2", "prompt": "...", "size": "1024x1024"}
-            image_fields: 图片文件字段，key 为字段名，value 为图片 bytes 列表
-            api_key: Bearer token
-            extra_headers: 额外 headers（不含 Authorization/Content-Type）
+        官方接入：同一字段名 images[] 重复多次，每张图一个 part。
         """
         headers: Dict[str, str] = {
             "Authorization": f"Bearer {api_key}",
@@ -271,73 +302,77 @@ class WeelinkingAdapter(BaseChannelAdapter):
                 if k and k.lower() not in ("authorization", "content-type"):
                     headers[k] = v
 
+        safe_headers = {k: v if k.lower() != "authorization" else "Bearer ***" for k, v in headers.items()}
+        safe_fields = {k: v for k, v in fields.items() if k != "api_key"}
+        self._http_request_info = {
+            "method": "POST",
+            "url": url,
+            "headers": safe_headers,
+            "content_type": "multipart/form-data",
+            "text_fields": safe_fields,
+            "image_fields": {k: [len(b) for b in v] for k, v in image_fields.items()},
+            "timestamp": time.time(),
+        }
+
+        await self._flush_outgoing_request_log()
+
         logger.info(f"[{self.trace_id}] ═════════ MULTIPART POST {url}")
         try:
-            safe_fields = {k: v for k, v in fields.items() if k != "api_key"}
-            logger.info(f"[{self.trace_id}] text_fields={json.dumps(safe_fields, ensure_ascii=False, indent=2, default=str)[:500]}")
-            logger.info(f"[{self.trace_id}] image_fields keys={list(image_fields.keys())}, "
-                        f"image_sizes={[(k, [len(b) for b in v]) for k, v in image_fields.items()]}")
+            logger.info(
+                f"[{self.trace_id}] text_fields={json.dumps(safe_fields, ensure_ascii=False, indent=2, default=str)[:800]}"
+            )
+            logger.info(
+                f"[{self.trace_id}] image_fields={[(k, [len(b) for b in v]) for k, v in image_fields.items()]}"
+            )
         except Exception:
             pass
 
-        # 构建 multipart form
-        form_data: List[Tuple[str, Any]] = []
-
-        # 文本字段
-        for k, v in fields.items():
-            if v is None:
-                continue
-            if isinstance(v, (list, dict)):
-                form_data.append((k, (None, json.dumps(v, ensure_ascii=False), "application/json")))
-            else:
-                form_data.append((k, (None, str(v))))
-
-        # 图片字段：支持 images[] -> 多个 images[] 项
-        for field_name, images_list in image_fields.items():
-            for idx, img_bytes in enumerate(images_list):
-                if not img_bytes:
-                    continue
-                # 猜测扩展名
+        def _guess_image_meta(img_bytes: bytes, idx: int) -> Tuple[str, str, str]:
+            ext = ".png"
+            header = img_bytes[:4] if len(img_bytes) >= 4 else b""
+            if header.startswith(b"\xff\xd8\xff"):
+                ext = ".jpg"
+            elif header.startswith(b"\x89PNG"):
                 ext = ".png"
-                guessed = mimetypes.guess_extension("image/png") or ".png"
-                # 根据前几字节判断
-                header = img_bytes[:4] if len(img_bytes) >= 4 else b""
-                if header.startswith(b"\xff\xd8\xff"):
-                    ext = ".jpg"
-                elif header.startswith(b"\x89PNG"):
-                    ext = ".png"
-                elif header.startswith(b"RIFF"):
-                    ext = ".webp"
-                elif header.startswith(b"GIF8"):
-                    ext = ".gif"
-                filename = f"image_{idx + 1}{ext}"
-                content_type = f"image/{ext[1:]}"
-                form_data.append((field_name, (filename, io.BytesIO(img_bytes), content_type)))
+            elif header.startswith(b"RIFF"):
+                ext = ".webp"
+            elif header.startswith(b"GIF8"):
+                ext = ".gif"
+            filename = f"image_{idx + 1}{ext}"
+            content_type = f"image/{ext[1:]}"
+            return filename, content_type, ext
 
         last_error = None
         max_retries = self.retry_config.get("max_retries", 1)
 
         for attempt in range(max_retries):
             try:
-                async with httpx.AsyncClient(timeout=self.timeout) as client:
-                    files_payload = {}
-                    data_payload = {}
-                    for item in form_data:
-                        k, v = item
-                        if isinstance(v, tuple) and len(v) >= 2 and isinstance(v[1], (io.BytesIO, bytes, io.IOBase)):
-                            # 文件字段: (filename, bytes_io, content_type)
-                            files_payload[k] = v
-                        elif isinstance(v, tuple) and len(v) >= 2:
-                            # (None, str) -> 普通文本
-                            data_payload[k] = v[1]
-                        else:
-                            data_payload[k] = v
+                data_payload: Dict[str, Any] = {}
+                for k, v in fields.items():
+                    if v is None:
+                        continue
+                    if isinstance(v, (list, dict)):
+                        data_payload[k] = json.dumps(v, ensure_ascii=False)
+                    else:
+                        data_payload[k] = str(v)
 
+                # httpx 多文件同名字段须用 list of tuples，不能用 dict（会覆盖）
+                files_list: List[Tuple[str, Tuple[str, bytes, str]]] = []
+                file_idx = 0
+                for field_name, images_list in image_fields.items():
+                    for img_bytes in images_list:
+                        if not img_bytes:
+                            continue
+                        filename, content_type, _ = _guess_image_meta(img_bytes, file_idx)
+                        files_list.append((field_name, (filename, img_bytes, content_type)))
+                        file_idx += 1
+
+                async with httpx.AsyncClient(timeout=self._http_timeout()) as client:
                     response = await client.post(
                         url,
                         headers=headers,
                         data=data_payload if data_payload else None,
-                        files=files_payload if files_payload else None,
+                        files=files_list if files_list else None,
                     )
 
                 logger.info(f"[{self.trace_id}] HTTP {response.status_code} 响应 (attempt {attempt+1})")
@@ -368,7 +403,10 @@ class WeelinkingAdapter(BaseChannelAdapter):
                         raise Exception(f"HTTP {response.status_code}: {err_msg}")
             except Exception as e:
                 last_error = e
-                logger.warning(f"[{self.trace_id}] HTTP 请求失败 (attempt {attempt+1}): {e}")
+                logger.warning(
+                    f"[{self.trace_id}] HTTP 请求失败 (attempt {attempt+1}): "
+                    f"{self._format_request_error(e)}"
+                )
                 if attempt < max_retries - 1:
                     wait_time = self.retry_config.get("retry_delay", 2)
                     time.sleep(wait_time)
@@ -411,7 +449,7 @@ class WeelinkingAdapter(BaseChannelAdapter):
 
         for attempt in range(max_retries):
             try:
-                async with httpx.AsyncClient(timeout=self.timeout) as client:
+                async with httpx.AsyncClient(timeout=self._http_timeout()) as client:
                     async with client.stream("POST", url, json=body, headers=headers) as response:
                         logger.info(f"[{self.trace_id}] HTTP {response.status_code} 流式响应 (attempt {attempt+1})")
 
@@ -459,7 +497,10 @@ class WeelinkingAdapter(BaseChannelAdapter):
                                 raise Exception(f"HTTP {response.status_code}: {err_msg}")
             except Exception as e:
                 last_error = e
-                logger.warning(f"[{self.trace_id}] 流式请求失败 (attempt {attempt+1}): {e}")
+                logger.warning(
+                    f"[{self.trace_id}] 流式请求失败 (attempt {attempt+1}): "
+                    f"{self._format_request_error(e)}"
+                )
                 if attempt < max_retries - 1:
                     wait_time = self.retry_config.get("retry_delay", 2)
                     time.sleep(wait_time)
@@ -467,6 +508,9 @@ class WeelinkingAdapter(BaseChannelAdapter):
         raise last_error or Exception("流式 HTTP 请求失败")
 
     async def call_api(self, category: str, channel_params: Dict[str, Any], channel_model_id: str, api_key: str, endpoint_config: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        self._active_category = (
+            endpoint_config.get("type") if endpoint_config else None
+        ) or category
         logger.info(f"[{self.trace_id}] call_api - category={category}, base_url={self.base_url}, model={channel_model_id}")
 
         if not api_key:
@@ -563,6 +607,14 @@ class WeelinkingAdapter(BaseChannelAdapter):
 
         # multipart/form-data 分支：下载图片文件，作为表单文件上传
         if body_type.startswith("multipart"):
+            if endpoint_type in ("image", "image_edits"):
+                edit_params = {**channel_params, "trace_id": self.trace_id}
+                body = normalize_weelinking_gpt_image_body(
+                    body, edit_params, endpoint="image_edits" if endpoint_type == "image_edits" else "generations"
+                )
+                if endpoint_type != "image_edits":
+                    body.setdefault("n", channel_params.get("n", channel_params.get("count", 1)))
+
             # 分离文本字段和图片字段
             text_fields: Dict[str, Any] = {}
             image_bytes_map: Dict[str, List[bytes]] = {}
@@ -578,7 +630,7 @@ class WeelinkingAdapter(BaseChannelAdapter):
                 if is_image_field and isinstance(v, (list, str)):
                     urls = v if isinstance(v, list) else [v]
                     bytes_list: List[bytes] = []
-                    for idx, u in enumerate(urls):
+                    for idx, u in enumerate(urls[:16]):
                         try:
                             img_url = u if isinstance(u, str) else extract_url_from_image_item(u)
                             if not img_url:
@@ -590,13 +642,17 @@ class WeelinkingAdapter(BaseChannelAdapter):
                         except Exception as e:
                             logger.warning(f"[{self.trace_id}] 跳过图片字段 {k}[{idx}]: {e}")
                     if bytes_list:
-                        # 使用 images[] 作为字段名（符合 OpenAI curl 规范）
-                        image_bytes_map["images[]"] = image_bytes_map.get("images[]", []) + bytes_list
+                        field_name = k if k.endswith("[]") or "[]" in k else "images[]"
+                        image_bytes_map[field_name] = image_bytes_map.get(field_name, []) + bytes_list
                 else:
                     text_fields[k] = v
 
+            if not image_bytes_map:
+                raise Exception("图生图需要至少一张参考图（images[]），请上传 CDN 图片后重试")
+
             logger.info(
-                f"[{self.trace_id}] multipart 请求 - text_keys={list(text_fields.keys())}, image_keys={list(image_bytes_map.keys())}"
+                f"[{self.trace_id}] multipart 请求 - text_keys={list(text_fields.keys())}, "
+                f"image_counts={[(k, len(v)) for k, v in image_bytes_map.items()]}"
             )
             response = await self._http_post_multipart(
                 url, text_fields, image_bytes_map, api_key,
@@ -606,6 +662,12 @@ class WeelinkingAdapter(BaseChannelAdapter):
 
         # 根据方法调用（JSON body）
         if method == "POST":
+            if endpoint_type in ("image", "image_edits"):
+                body = normalize_weelinking_gpt_image_body(
+                    body,
+                    channel_params,
+                    endpoint="image_edits" if endpoint_type == "image_edits" else "generations",
+                )
             # 根据 body 中的 stream 字段决定走流式还是非流式请求
             use_stream = bool(body.get("stream", False))
             if use_stream:
@@ -634,7 +696,7 @@ class WeelinkingAdapter(BaseChannelAdapter):
 
         logger.info(f"[{self.trace_id}] ═════════ GET {url}")
 
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
+        async with httpx.AsyncClient(timeout=self._http_timeout()) as client:
             response = await client.get(url, headers=headers)
 
         if response.status_code == 200:
@@ -898,7 +960,11 @@ class WeelinkingAdapter(BaseChannelAdapter):
         elif "count" in channel_params:
             body["n"] = max(1, min(10, int(channel_params["count"])))
 
-        if "aspect_ratio" in channel_params:
+        if "aspect_ratio" in channel_params and not (
+            channel_params.get("size")
+            and str(channel_params["size"]).strip().lower() not in ("", "auto")
+            and "x" in str(channel_params["size"])
+        ):
             body["aspect_ratio"] = str(channel_params["aspect_ratio"])
             body["size"] = "auto"
         elif "size" in channel_params:
@@ -938,6 +1004,13 @@ class WeelinkingAdapter(BaseChannelAdapter):
         if "seed" in channel_params:
             body["seed"] = int(channel_params["seed"])
 
+        edit_params = {**channel_params, "trace_id": self.trace_id}
+        body = normalize_weelinking_gpt_image_body(
+            body,
+            edit_params,
+            endpoint="image_edits" if has_reference_image else "generations",
+        )
+
         # 关键逻辑：使用 image_edits 端点时走 multipart/form-data，images[] 字段作为文件上传
         use_multipart = has_reference_image and (
             "edits" in image_path
@@ -969,8 +1042,9 @@ class WeelinkingAdapter(BaseChannelAdapter):
                     "model": body.get("model", channel_model_id),
                     "prompt": prompt,
                 }
-                for k in ("n", "size", "width", "height", "aspect_ratio",
-                          "quality", "output_format", "response_format",
+                for k in ("size", "width", "height", "aspect_ratio",
+                          "quality", "output_format", "response_format", "background",
+                          "output_compression", "user",
                           "thinking", "seed", "input_fidelity", "negative_prompt"):
                     if k in body:
                         multipart_fields[k] = body[k]
@@ -1041,8 +1115,11 @@ class WeelinkingAdapter(BaseChannelAdapter):
             from app.services.storage_service import get_storage_service
             from datetime import datetime
             
-            # 解码base64数据
-            image_data = base64.b64decode(base64_data)
+            # 解码base64数据（兼容纯 base64 与 data:image/...;base64, 前缀）
+            raw = base64_data.strip()
+            if raw.startswith("data:"):
+                raw = raw.split(",", 1)[1]
+            image_data = base64.b64decode(raw)
             
             # 生成文件名
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -1182,6 +1259,9 @@ class WeelinkingAdapter(BaseChannelAdapter):
             return {"type": result_type, "raw": raw_result}
 
     def parse_error(self, exception: Exception) -> tuple[str, str]:
+        if isinstance(exception, httpx.TimeoutException):
+            return "timeout", "生成超时：渠道可能仍在处理，请稍后重试或增大渠道超时配置"
+
         err_msg = str(exception).lower()
 
         if "401" in err_msg or "unauthorized" in err_msg or "invalid" in err_msg and "key" in err_msg:

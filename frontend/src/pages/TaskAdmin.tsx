@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import {
   Table,
   Button,
@@ -17,6 +18,7 @@ import {
   Divider,
   Alert,
   Popconfirm,
+  Input,
 } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import {
@@ -34,6 +36,7 @@ import {
 import {
   listTasksAdmin,
   getTaskStatsAdmin,
+  getTaskAdmin,
   cancelAllTasksAdmin,
   cancelTaskAdmin,
 } from '@/api'
@@ -56,6 +59,7 @@ const statusMap: Record<string, { label: string; color: string; icon: React.Reac
 }
 
 export default function TaskAdmin() {
+  const [searchParams] = useSearchParams()
   const [loading, setLoading] = useState(false)
   const [data, setData] = useState<TaskItem[]>([])
   const [total, setTotal] = useState(0)
@@ -63,7 +67,11 @@ export default function TaskAdmin() {
   const [pageSize, setPageSize] = useState(20)
   const [filterCategory, setFilterCategory] = useState<string | undefined>()
   const [filterStatus, setFilterStatus] = useState<string | undefined>()
-  const [timeRange, setTimeRange] = useState<string>('6h')  // 默认最近6小时
+  const [filterModelCode, setFilterModelCode] = useState('')
+  const [filterChannelCode, setFilterChannelCode] = useState('')
+  const [searchTaskId, setSearchTaskId] = useState('')
+  const [searchTraceId, setSearchTraceId] = useState('')
+  const [timeRange, setTimeRange] = useState<string>('24h')
   const [viewItem, setViewItem] = useState<TaskItem | null>(null)
   const [stats, setStats] = useState<TaskStats | null>(null)
   const [sortBy, setSortBy] = useState('created_at')
@@ -77,6 +85,10 @@ export default function TaskAdmin() {
         page_size: pageSize,
         category: filterCategory,
         status: filterStatus,
+        model_code: filterModelCode.trim() || undefined,
+        channel_code: filterChannelCode.trim() || undefined,
+        task_id: searchTaskId.trim() || undefined,
+        trace_id: searchTraceId.trim() || undefined,
         time_range: timeRange,
         sort_by: sortBy,
         sort_order: sortOrder,
@@ -129,18 +141,59 @@ export default function TaskAdmin() {
     }
   }
 
+  const handleViewTask = async (r: TaskItem) => {
+    setViewItem(r)
+    try {
+      const res = await getTaskAdmin(r.task_id)
+      if (res.code === 'success' && res.data) {
+        setViewItem(res.data)
+      }
+    } catch {
+      /* 使用列表数据 */
+    }
+  }
+
+  useEffect(() => {
+    const qModel = searchParams.get('model_code')
+    const qChannel = searchParams.get('channel_code')
+    const qTask = searchParams.get('task_id')
+    const qTrace = searchParams.get('trace_id')
+    if (qModel) setFilterModelCode(qModel)
+    if (qChannel) setFilterChannelCode(qChannel)
+    if (qTask) setSearchTaskId(qTask)
+    if (qTrace) setSearchTraceId(qTrace)
+  }, [searchParams])
+
   useEffect(() => {
     fetchData()
     fetchStats()
-  }, [page, pageSize, filterCategory, filterStatus, timeRange, sortBy, sortOrder])
+  }, [page, pageSize, filterCategory, filterStatus, filterModelCode, filterChannelCode, searchTaskId, searchTraceId, timeRange, sortBy, sortOrder])
 
   const columns: ColumnsType<TaskItem> = [
     {
-      title: '任务ID',
-      dataIndex: 'id',
-      key: 'id',
+      title: '任务 ID',
+      dataIndex: 'task_id',
+      key: 'task_id',
+      width: 200,
+      ellipsis: true,
+      render: (v) => (
+        <code style={{ fontSize: 11 }} title={v}>{v || '-'}</code>
+      ),
+    },
+    {
+      title: 'Trace ID',
+      dataIndex: 'trace_id',
+      key: 'trace_id',
       width: 180,
-      render: (v) => <code style={{ fontSize: 11 }}>{String(v).slice(0, 18)}...</code>,
+      ellipsis: true,
+      render: (v) =>
+        v ? (
+          <a href={`/admin/trace-logs?trace_id=${encodeURIComponent(v)}`} target="_blank" rel="noreferrer">
+            <code style={{ fontSize: 11 }} title={v}>{v}</code>
+          </a>
+        ) : (
+          '-'
+        ),
     },
     {
       title: '模型',
@@ -206,7 +259,7 @@ export default function TaskAdmin() {
       fixed: 'right',
       render: (_, r) => (
         <Space>
-          <Button size="small" icon={<EyeOutlined />} onClick={() => setViewItem(r)}>
+          <Button size="small" icon={<EyeOutlined />} onClick={() => handleViewTask(r)}>
             详情
           </Button>
           {(r.status === 'processing' || r.status === 'pending') && (
@@ -292,6 +345,34 @@ export default function TaskAdmin() {
               <Option value="30d">最近30天</Option>
               <Option value="all">全部时间</Option>
             </Select>
+            <Input
+              placeholder="任务 ID"
+              allowClear
+              style={{ width: 200 }}
+              value={searchTaskId}
+              onChange={(e) => { setSearchTaskId(e.target.value); setPage(1) }}
+            />
+            <Input
+              placeholder="Trace ID"
+              allowClear
+              style={{ width: 200 }}
+              value={searchTraceId}
+              onChange={(e) => { setSearchTraceId(e.target.value); setPage(1) }}
+            />
+            <Input
+              placeholder="模型编码"
+              allowClear
+              style={{ width: 130 }}
+              value={filterModelCode}
+              onChange={(e) => { setFilterModelCode(e.target.value); setPage(1) }}
+            />
+            <Input
+              placeholder="渠道编码"
+              allowClear
+              style={{ width: 130 }}
+              value={filterChannelCode}
+              onChange={(e) => { setFilterChannelCode(e.target.value); setPage(1) }}
+            />
             <Select
               placeholder="分类筛选"
               allowClear
@@ -376,7 +457,9 @@ export default function TaskAdmin() {
         {viewItem && (
           <div>
             <Descriptions column={2} bordered size="small" style={{ marginBottom: 16 }}>
-              <Descriptions.Item label="任务ID">{String(viewItem.id)}</Descriptions.Item>
+              <Descriptions.Item label="任务 ID" span={2}>
+                <code style={{ fontSize: 11 }}>{viewItem.task_id}</code>
+              </Descriptions.Item>
               <Descriptions.Item label="模型">
                 <Tag color="blue">{viewItem.model_code}</Tag>
               </Descriptions.Item>
@@ -390,7 +473,15 @@ export default function TaskAdmin() {
                 {viewItem.channel_code ? <Tag color="orange">{viewItem.channel_code}</Tag> : '-'}
               </Descriptions.Item>
               <Descriptions.Item label="Trace ID">
-                {viewItem.trace_id ? <code style={{ fontSize: 11 }}>{viewItem.trace_id}</code> : '-'}
+                {viewItem.trace_id ? (
+                  <a
+                    href={`/admin/trace-logs?trace_id=${viewItem.trace_id}`}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    <code style={{ fontSize: 11 }}>{viewItem.trace_id}</code>
+                  </a>
+                ) : '-'}
               </Descriptions.Item>
               <Descriptions.Item label="耗时">
                 {viewItem.duration_ms ? `${(viewItem.duration_ms / 1000).toFixed(2)}s` : '-'}
@@ -417,13 +508,37 @@ export default function TaskAdmin() {
               <pre style={{ margin: 0, fontSize: 12 }}>{JSON.stringify(viewItem.params, null, 2)}</pre>
             </div>
 
-            {/* 渠道请求参数 */}
+            {/* 渠道请求：HTTP 实际请求 + 网关上下文（不重复展示） */}
+            {!viewItem.channel_request && !viewItem.channel_response && (
+              <Alert
+                type="warning"
+                showIcon
+                style={{ marginBottom: 12 }}
+                message="本任务未记录渠道入参/出参（可能是备用渠道成功时的历史数据，或走了 /execute 旧路径）"
+                description={viewItem.trace_id ? `可在「链路日志」中按 Trace ID 查询：${viewItem.trace_id}` : undefined}
+              />
+            )}
+
             {viewItem.channel_request && (
               <>
-                <Divider style={{ margin: '12px 0' }}>渠道请求参数</Divider>
-                <div style={{ background: '#fff7e6', padding: 12, borderRadius: 6, marginBottom: 12, maxHeight: 200, overflowY: 'auto' }}>
-                  <pre style={{ margin: 0, fontSize: 12 }}>{JSON.stringify(viewItem.channel_request, null, 2)}</pre>
-                </div>
+                <Divider style={{ margin: '12px 0' }}>渠道请求</Divider>
+                {(viewItem.channel_request as any).http_request ? (
+                  <div style={{ background: '#f9f0ff', padding: 12, borderRadius: 6, marginBottom: 12, maxHeight: 280, overflowY: 'auto' }}>
+                    <pre style={{ margin: 0, fontSize: 12 }}>
+                      {JSON.stringify((viewItem.channel_request as any).http_request, null, 2)}
+                    </pre>
+                  </div>
+                ) : null}
+                {(() => {
+                  const { http_request: _hr, ...meta } = viewItem.channel_request as Record<string, unknown>
+                  if (Object.keys(meta).length === 0) return null
+                  return (
+                    <div style={{ background: '#fff7e6', padding: 12, borderRadius: 6, marginBottom: 12, maxHeight: 160, overflowY: 'auto' }}>
+                      <div style={{ fontSize: 12, color: '#8c8c8c', marginBottom: 6 }}>网关上下文</div>
+                      <pre style={{ margin: 0, fontSize: 12 }}>{JSON.stringify(meta, null, 2)}</pre>
+                    </div>
+                  )
+                })()}
               </>
             )}
 
@@ -431,6 +546,39 @@ export default function TaskAdmin() {
             {viewItem.channel_response && Object.keys(viewItem.channel_response).length > 0 && (
               <>
                 <Divider style={{ margin: '12px 0' }}>渠道响应</Divider>
+                {(viewItem.channel_response as any).primary_failed && (
+                  <div style={{ marginBottom: 12 }}>
+                    <div style={{ fontSize: 13, fontWeight: 500, color: '#fa8c16', marginBottom: 8 }}>
+                      主渠道失败（已切换备用）
+                    </div>
+                    <div style={{ background: '#fff7e6', padding: 12, borderRadius: 6, maxHeight: 180, overflowY: 'auto' }}>
+                      <pre style={{ margin: 0, fontSize: 12 }}>
+                        {JSON.stringify((viewItem.channel_response as any).primary_failed, null, 2)}
+                      </pre>
+                    </div>
+                  </div>
+                )}
+                {(viewItem.channel_response as any).error && (
+                  <div style={{ marginBottom: 12 }}>
+                    <Alert
+                      type="error"
+                      message={(viewItem.channel_response as any).error?.error_message || '渠道返回错误'}
+                      description={(viewItem.channel_response as any).error?.error_code}
+                    />
+                  </div>
+                )}
+                {(viewItem.channel_response as any).raw && (
+                  <div style={{ marginBottom: 12 }}>
+                    <div style={{ fontSize: 13, fontWeight: 500, color: '#722ed1', marginBottom: 8 }}>
+                      渠道原始响应
+                    </div>
+                    <div style={{ background: '#f9f0ff', padding: 12, borderRadius: 6, maxHeight: 220, overflowY: 'auto' }}>
+                      <pre style={{ margin: 0, fontSize: 12 }}>
+                        {JSON.stringify((viewItem.channel_response as any).raw, null, 2)}
+                      </pre>
+                    </div>
+                  </div>
+                )}
                 {viewItem.category === 'video' && viewItem.channel_response.create && (
                   <div style={{ marginBottom: 12 }}>
                     <div style={{ fontSize: 13, fontWeight: 500, color: '#1890ff', marginBottom: 8 }}>

@@ -30,6 +30,7 @@ class Settings(BaseSettings):
     # JWT配置
     jwt_secret_key: str = "your-jwt-secret-key-must-be-at-least-32-characters-long-for-hs256"
     jwt_algorithm: str = "HS256"
+    jwt_expire_minutes: int = 10080  # 7 天
 
     cors_origins: str = "http://localhost:3000,http://localhost:3001,http://localhost:5173"
 
