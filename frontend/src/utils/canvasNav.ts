@@ -17,9 +17,30 @@ export const canvasProjectLinkProps = {
   rel: 'noopener noreferrer',
 }
 
-/** 拉取项目列表（含未绑定 user_id 的历史项目） */
-export async function fetchCanvasProjects(userId?: string | null, pageSize = 50): Promise<CanvasProject[]> {
-  const res = await listCanvasProjects({ user_id: userId || undefined, page_size: pageSize })
-  if (res.code !== 'success') return []
-  return Array.isArray(res.data) ? res.data : []
+function listQueryUserId(userId?: string | null): string | undefined {
+  if (!userId || userId === 'default_user') return undefined
+  return userId
+}
+
+/** 拉取项目列表（含未绑定 user_id 与 default_user 历史项目；自动翻页） */
+export async function fetchCanvasProjects(userId?: string | null, pageSize = 100): Promise<CanvasProject[]> {
+  const queryUserId = listQueryUserId(userId)
+  const all: CanvasProject[] = []
+  let page = 1
+  let totalPages = 1
+
+  while (page <= totalPages) {
+    const res = await listCanvasProjects({
+      user_id: queryUserId,
+      page,
+      page_size: pageSize,
+    })
+    if (res.code !== 'success') break
+    const batch = Array.isArray(res.data) ? res.data : []
+    all.push(...batch)
+    totalPages = Math.max(1, res.total_pages ?? 1)
+    page += 1
+  }
+
+  return all
 }

@@ -1,7 +1,6 @@
 import { memo, useEffect, useState } from 'react'
 import { type NodeProps } from '@xyflow/react'
-import { FileTextOutlined, CopyOutlined } from '@ant-design/icons'
-import { Button, Tooltip, message } from 'antd'
+import { FileTextOutlined } from '@ant-design/icons'
 import BaseNodeShell from '../BaseNodeShell'
 import NodeReferenceStrip from '../NodeReferenceStrip'
 import type { CanvasNodeData } from '@/types/canvas'
@@ -21,38 +20,10 @@ function TextNode({ data, selected }: NodeProps) {
     setText(remoteText)
   }, [node.node_id, remoteText])
 
-  const copyText = async () => {
-    if (!text) {
-      message.info('暂无内容可复制')
-      return
-    }
-    try {
-      await navigator.clipboard.writeText(text)
-      message.success('已复制')
-    } catch {
-      message.error('复制失败')
-    }
-  }
-
   const placeholder =
     textMode === 'manual'
       ? '在此直接输入文本…'
       : '生成结果将显示在此\n点击下方面板描述需求并运行'
-
-  const copyBtn = text ? (
-    <Tooltip title="复制">
-      <Button
-        type="text"
-        size="small"
-        icon={<CopyOutlined />}
-        className="canvas-node__copy-btn"
-        onClick={(e) => {
-          e.stopPropagation()
-          copyText()
-        }}
-      />
-    </Tooltip>
-  ) : null
 
   const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const next = e.target.value
@@ -73,7 +44,6 @@ function TextNode({ data, selected }: NodeProps) {
       onResizeStart={d.onResizeStart}
       onOpenPanel={d.onOpenPanel}
       onDuplicate={d.onDuplicate}
-      headerExtra={copyBtn}
       referenceStrip={
         d.upstream ? <NodeReferenceStrip upstream={d.upstream} variant="node" /> : null
       }

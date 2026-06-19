@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { Button, Card, Empty, Input, List, Modal, Spin, message } from 'antd'
 import { PlusOutlined, DeleteOutlined, EditOutlined, AppstoreOutlined, RightOutlined } from '@ant-design/icons'
 import { createCanvasProject, deleteCanvasProject, updateCanvasProject } from '@/api/canvas'
+import { formatServerDateTime } from '@/utils/formatDateTime'
 import type { CanvasProject } from '@/types/canvas'
 import { useGenerationStore } from '@/store/generation'
 import { canvasProjectPath, canvasProjectLinkProps, fetchCanvasProjects, openCanvasProject } from '@/utils/canvasNav'
@@ -133,7 +134,7 @@ export default function CanvasHome() {
                         <RightOutlined className="canvas-home__card-arrow" />
                       </span>
                     }
-                    description={`更新于 ${new Date(item.updated_at).toLocaleString()}`}
+                    description={`更新于 ${formatServerDateTime(item.updated_at)}`}
                   />
                 </Link>
               </Card>

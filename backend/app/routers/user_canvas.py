@@ -67,7 +67,7 @@ async def create_node(project_id: str, data: CanvasNodeCreate):
 
 @router.put("/projects/{project_id}/nodes/{node_id}")
 async def update_node(project_id: str, node_id: str, data: CanvasNodeUpdate):
-    updates = data.model_dump(exclude_none=True)
+    updates = data.model_dump(exclude_unset=True)
     node = await get_canvas_service().update_node(project_id, node_id, updates)
     if not node:
         return error("not_found", "节点不存在")
@@ -117,6 +117,23 @@ async def batch_sync(project_id: str, data: CanvasBatchSync):
     if not project:
         return error("not_found", "项目不存在")
     return success(project)
+
+
+@router.get("/projects/{project_id}/runs")
+async def list_project_runs(project_id: str, page: int = 1, page_size: int = 30):
+    svc = get_canvas_service()
+    if not await svc.projects.find_one({"project_id": project_id}, {"_id": 1}):
+        return error("not_found", "项目不存在")
+    items, total = await svc.list_project_runs(project_id, page, page_size)
+    return paginated(items, total, page, page_size)
+
+
+@router.get("/projects/{project_id}/runs/{task_id}")
+async def get_project_run(project_id: str, task_id: str):
+    run = await get_canvas_service().get_project_run(project_id, task_id)
+    if not run:
+        return error("not_found", "运行记录不存在")
+    return success(run)
 
 
 @router.post("/projects/{project_id}/nodes/{node_id}/run")

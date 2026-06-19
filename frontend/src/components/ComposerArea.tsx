@@ -84,6 +84,13 @@ const RatioIcon = ({ w, h }: { w: number; h: number }) => {
 }
 
 // ==================== 类型特定状态接口 ====================
+const VIDEO_DURATION_MIN = 4
+const VIDEO_DURATION_MAX = 15
+
+function clampVideoDuration(value: number): number {
+  return Math.min(VIDEO_DURATION_MAX, Math.max(VIDEO_DURATION_MIN, Math.round(value)))
+}
+
 interface CategoryState {
   prompt: string
   ratio: AspectRatioKey | 'auto'
@@ -282,7 +289,7 @@ export default function ComposerArea() {
           state.ratio = params.ratio as AspectRatioKey | 'auto'
         }
         if (params.duration !== undefined) {
-          state.videoDuration = Number(params.duration)
+          state.videoDuration = clampVideoDuration(Number(params.duration))
         }
         if (params.video_quality !== undefined) {
           state.videoQuality = params.video_quality as '480p' | '720p'
@@ -876,15 +883,15 @@ export default function ComposerArea() {
               视频时长：{currentState.videoDuration}秒
             </div>
             <Slider
-              min={1}
-              max={15}
+              min={VIDEO_DURATION_MIN}
+              max={VIDEO_DURATION_MAX}
               step={1}
               value={currentState.videoDuration}
               onChange={(v) => updateCurrentState({ videoDuration: v as number })}
               marks={{
-                1: '1s',
-                5: '5s',
-                10: '10s',
+                4: '4s',
+                8: '8s',
+                12: '12s',
                 15: '15s',
               }}
             />

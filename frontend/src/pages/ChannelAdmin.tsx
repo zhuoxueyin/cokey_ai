@@ -52,6 +52,7 @@ import {
   createEmptyBodyParam,
 } from '@/constants/bodyParamPresets'
 import IntegrationDebugDrawer from '@/components/IntegrationDebugDrawer'
+import { formatServerDateTime } from '@/utils/formatDateTime'
 
 const { TextArea } = Input
 const { Option } = Select
@@ -625,7 +626,7 @@ export default function ChannelAdmin() {
       dataIndex: 'created_at',
       key: 'created_at',
       width: 180,
-      render: (v) => v?.replace('T', ' ').slice(0, 19),
+      render: (v) => formatServerDateTime(v),
     },
     {
       title: '操作',

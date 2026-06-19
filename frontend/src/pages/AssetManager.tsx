@@ -5,6 +5,7 @@ import { DeleteOutlined, UploadOutlined, DownloadOutlined, PictureOutlined, Vide
 import { listAssets, uploadAsset, deleteAsset } from '@/api'
 import type { AssetItem } from '@/types'
 import { downloadRemoteFile } from '@/utils/download'
+import { formatServerDateTime, parseServerDateTime } from '@/utils/formatDateTime'
 
 const { RangePicker } = DatePicker
 
@@ -192,7 +193,7 @@ export default function AssetManager() {
         {item.category === 'file' && <Tag color="orange" style={{ fontSize: 11, padding: '0 6px', height: 20, lineHeight: '18px' }}>文件</Tag>}
       </div>
       <div style={{ fontSize: 11, color: '#999', marginBottom: 8 }}>
-        {new Date(item.created_at).toLocaleString('zh-CN')}
+        {formatServerDateTime(item.created_at)}
       </div>
       <Space size={4}>
         <Button size="small" type="text" icon={<EyeOutlined />} onClick={() => handlePreview(item)}>

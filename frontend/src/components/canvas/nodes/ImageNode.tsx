@@ -4,6 +4,7 @@ import { PictureOutlined } from '@ant-design/icons'
 import BaseNodeShell from '../BaseNodeShell'
 import NodeResultView from '../NodeResultView'
 import NodeReferenceStrip from '../NodeReferenceStrip'
+import { resolveNodeDisplayStatus } from '@/utils/canvasNodeStatus'
 import type { CanvasNodeData } from '@/types/canvas'
 import { computeImageNodeSize, loadImageDimensions, pickOutputImageUrl } from '@/utils/canvasNodeSize'
 
@@ -34,7 +35,8 @@ function ImageNode({ data, selected }: NodeProps) {
   }, [node.result, node.result_version, node.config.user_resized, primaryIndex, d.onAutoSize])
 
   const hasResult = !!node.result?.images?.length
-  const showLoading = node.status === 'running'
+  const displayStatus = resolveNodeDisplayStatus(node, d.activeRunNodeId)
+  const showLoading = displayStatus === 'running'
   const imageCount = node.result?.images?.length ?? 0
   const onSelectPrimary = d.onSelectPrimaryImage ?? d.onSelectOutputImage
 
@@ -44,7 +46,7 @@ function ImageNode({ data, selected }: NodeProps) {
       icon={<PictureOutlined />}
       selected={selected}
       stale={node.input_stale}
-      status={node.status}
+      status={displayStatus}
       minWidth={200}
       minHeight={180}
       onResizeEnd={d.onResizeEnd}
@@ -64,7 +66,7 @@ function ImageNode({ data, selected }: NodeProps) {
         ))}
       <NodeResultView
         result={node.result}
-        status={node.status}
+        status={displayStatus}
         errorMessage={node.error_message}
         fitContain={hasResult && !showLoading}
         primaryImageIndex={primaryIndex}

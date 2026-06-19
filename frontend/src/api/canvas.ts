@@ -1,6 +1,6 @@
 import request, { longRunningService } from './request'
 import type { ApiResponse, PaginatedResponse } from '@/types'
-import type { CanvasProject, CanvasNode, CanvasEdge, CanvasViewport, CanvasNodeConfig } from '@/types/canvas'
+import type { CanvasProject, CanvasNode, CanvasEdge, CanvasViewport, CanvasNodeConfig, CanvasRunRecord, CanvasRunDetail } from '@/types/canvas'
 
 export const createCanvasProject = (params: {
   title?: string
@@ -39,6 +39,7 @@ export const createCanvasNode = (
     title?: string
     position?: { x: number; y: number }
     config?: CanvasNodeConfig
+    parent_id?: string | null
   },
 ): Promise<ApiResponse<CanvasNode>> => {
   return request.post(`/canvas/projects/${projectId}/nodes`, data)
@@ -52,6 +53,7 @@ export const updateCanvasNode = (
     position: { x: number; y: number }
     config: CanvasNodeConfig
     result: Record<string, any>
+    parent_id: string | null
   }>,
 ): Promise<ApiResponse<CanvasNode>> => {
   return request.put(`/canvas/projects/${projectId}/nodes/${nodeId}`, data)
@@ -90,7 +92,7 @@ export const syncCanvasProject = (
   projectId: string,
   data: {
     viewport?: CanvasViewport
-    nodes?: Array<{ node_id: string; position?: { x: number; y: number }; title?: string }>
+    nodes?: Array<{ node_id: string; position?: { x: number; y: number }; title?: string; parent_id?: string | null }>
   },
 ): Promise<ApiResponse<CanvasProject>> => {
   return request.put(`/canvas/projects/${projectId}/sync`, data)
@@ -128,4 +130,18 @@ export const uploadCanvasResource = (
   return request.post(`/canvas/projects/${projectId}/upload-resource`, formData, {
     headers: { 'Content-Type': 'multipart/form-data' },
   })
+}
+
+export const listCanvasRuns = (
+  projectId: string,
+  params?: { page?: number; page_size?: number },
+): Promise<PaginatedResponse<CanvasRunRecord>> => {
+  return request.get(`/canvas/projects/${projectId}/runs`, { params })
+}
+
+export const getCanvasRunDetail = (
+  projectId: string,
+  taskId: string,
+): Promise<ApiResponse<CanvasRunDetail>> => {
+  return request.get(`/canvas/projects/${projectId}/runs/${taskId}`)
 }

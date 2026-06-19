@@ -28,7 +28,14 @@ export default function NodeInputPanel({
   const textMode = node.config.text_mode || 'generate'
 
   const handlePanelMouseDown = (e: React.MouseEvent) => {
-    if ((e.target as HTMLElement).closest('button, textarea, input, select, .ant-select')) return
+    const target = e.target as HTMLElement
+    if (
+      target.closest(
+        'button, textarea, input, select, a, [contenteditable="true"], .canvas-prompt-editor, .canvas-prompt-input, .ant-select, .ant-segmented, .ant-input, .ant-input-affix-wrapper, .ant-popover',
+      )
+    ) {
+      return
+    }
     const startX = e.clientX
     const startY = e.clientY
     const onMove = (ev: MouseEvent) => {
@@ -68,6 +75,7 @@ export default function NodeInputPanel({
       {node.node_type === 'text' && textMode === 'generate' && (
         <TextComposerPanel
           config={node.config}
+          upstreamRefs={upstream.refs}
           running={running}
           onRun={onRun}
           onUpdateConfig={onUpdateConfig}

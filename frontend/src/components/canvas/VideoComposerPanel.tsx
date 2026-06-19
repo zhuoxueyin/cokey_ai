@@ -1,15 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Button, Input, Popover, Segmented, Slider } from 'antd'
+import { Button, Popover, Segmented, Slider } from 'antd'
 import { ArrowUpOutlined, DownOutlined, RobotOutlined, CheckOutlined } from '@ant-design/icons'
 import { getModels } from '@/api'
 import type { ModelItem } from '@/types'
 import type { CanvasNodeConfig } from '@/types/canvas'
 import type { CanvasUpstreamPreview } from '@/utils/canvasUpstream'
 import type { AspectRatioKey } from '@/constants/imageSizeSpec'
+import CanvasPromptInput from './CanvasPromptInput'
+import { hasVideoRunInput } from '@/utils/canvasPromptMention'
 import NodeReferenceStrip from './NodeReferenceStrip'
 import { canvasPopoverProps } from './canvasPopover'
-
-const { TextArea } = Input
 
 type VideoQuality = '480p' | '720p'
 
@@ -19,6 +19,13 @@ interface VideoPanelState {
   duration: number
   quality: VideoQuality
   audio: boolean
+}
+
+const VIDEO_DURATION_MIN = 4
+const VIDEO_DURATION_MAX = 15
+
+function clampVideoDuration(value: number): number {
+  return Math.min(VIDEO_DURATION_MAX, Math.max(VIDEO_DURATION_MIN, Math.round(value)))
 }
 
 const RATIO_OPTIONS: { key: AspectRatioKey | 'auto'; label: string; w?: number; h?: number }[] = [
@@ -48,7 +55,7 @@ function stateFromConfig(config: CanvasNodeConfig): VideoPanelState {
   if (params.ratio === 'auto' || typeof params.ratio === 'string') {
     state.ratio = (params.ratio as AspectRatioKey | 'auto') || 'auto'
   }
-  if (typeof params.duration === 'number') state.duration = params.duration
+  if (typeof params.duration === 'number') state.duration = clampVideoDuration(params.duration)
   if (params.video_quality === '480p' || params.video_quality === '720p') {
     state.quality = params.video_quality
   }
@@ -165,6 +172,7 @@ export default function VideoComposerPanel({
 
   const handleSubmit = () => {
     if (!modelCode) return
+    if (!hasVideoRunInput(state.prompt, upstream)) return
     onRun({
       ...config,
       prompt: state.prompt.trim(),
@@ -231,11 +239,17 @@ export default function VideoComposerPanel({
       <div className="canvas-video-config__section">
         <div className="canvas-video-config__title">视频时长：{state.duration} 秒</div>
         <Slider
-          min={1}
-          max={15}
+          min={VIDEO_DURATION_MIN}
+          max={VIDEO_DURATION_MAX}
           step={1}
           value={state.duration}
           onChange={(v) => patchState({ duration: v })}
+          marks={{
+            4: '4s',
+            8: '8s',
+            12: '12s',
+            15: '15s',
+          }}
         />
       </div>
       <div className="canvas-video-config__section">
@@ -258,11 +272,11 @@ export default function VideoComposerPanel({
     <div className="canvas-video-composer">
       <NodeReferenceStrip upstream={upstream} variant="panel" />
 
-      <TextArea
+      <CanvasPromptInput
         value={state.prompt}
-        onChange={(e) => patchState({ prompt: e.target.value })}
-        placeholder="描述你想要生成的视频内容…"
-        autoSize={{ minRows: 1, maxRows: 4 }}
+        onChange={(prompt) => patchState({ prompt })}
+        refs={upstream.refs}
+        placeholder="描述视频；输入 @ 引用上游文本或图片"
         className="canvas-run-panel__input canvas-run-panel__input--large"
       />
 

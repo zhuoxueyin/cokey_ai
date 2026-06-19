@@ -41,6 +41,7 @@ import {
   cancelTaskAdmin,
 } from '@/api'
 import type { TaskItem, TaskStats } from '@/types'
+import { formatServerDateTime, formatServerDateTimeCompact } from '@/utils/formatDateTime'
 
 const { Option } = Select
 
@@ -174,39 +175,25 @@ export default function TaskAdmin() {
       title: '任务 ID',
       dataIndex: 'task_id',
       key: 'task_id',
-      width: 200,
+      width: 190,
       ellipsis: true,
       render: (v) => (
         <code style={{ fontSize: 11 }} title={v}>{v || '-'}</code>
       ),
     },
     {
-      title: 'Trace ID',
-      dataIndex: 'trace_id',
-      key: 'trace_id',
-      width: 180,
-      ellipsis: true,
-      render: (v) =>
-        v ? (
-          <a href={`/admin/trace-logs?trace_id=${encodeURIComponent(v)}`} target="_blank" rel="noreferrer">
-            <code style={{ fontSize: 11 }} title={v}>{v}</code>
-          </a>
-        ) : (
-          '-'
-        ),
-    },
-    {
       title: '模型',
       dataIndex: 'model_code',
       key: 'model_code',
-      width: 140,
+      width: 132,
+      ellipsis: true,
       render: (v) => <Tag color="blue">{v}</Tag>,
     },
     {
       title: '分类',
       dataIndex: 'category',
       key: 'category',
-      width: 90,
+      width: 88,
       render: (v) => {
         const c = categoryMap[v] || { label: v, color: 'default', icon: null }
         return (
@@ -220,7 +207,7 @@ export default function TaskAdmin() {
       title: '状态',
       dataIndex: 'status',
       key: 'status',
-      width: 110,
+      width: 100,
       render: (v) => {
         const s = statusMap[v] || { label: v, color: 'default', icon: null }
         return (
@@ -234,6 +221,7 @@ export default function TaskAdmin() {
       title: '参数摘要',
       dataIndex: 'params_summary',
       key: 'params_summary',
+      width: 260,
       ellipsis: true,
       render: (v) => <span style={{ color: '#666' }}>{v || '-'}</span>,
     },
@@ -241,7 +229,7 @@ export default function TaskAdmin() {
       title: '耗时',
       dataIndex: 'duration_ms',
       key: 'duration_ms',
-      width: 100,
+      width: 88,
       render: (v) => v ? `${(v / 1000).toFixed(2)}s` : '-',
       sorter: (a, b) => (a.duration_ms || 0) - (b.duration_ms || 0),
     },
@@ -249,16 +237,15 @@ export default function TaskAdmin() {
       title: '创建时间',
       dataIndex: 'created_at',
       key: 'created_at',
-      width: 170,
-      render: (v) => v?.replace('T', ' ').slice(0, 19),
+      width: 150,
+      render: (v) => formatServerDateTimeCompact(v),
     },
     {
       title: '操作',
       key: 'actions',
-      width: 150,
-      fixed: 'right',
+      width: 132,
       render: (_, r) => (
-        <Space>
+        <Space size={4}>
           <Button size="small" icon={<EyeOutlined />} onClick={() => handleViewTask(r)}>
             详情
           </Button>
@@ -283,7 +270,7 @@ export default function TaskAdmin() {
   const avgDurationSec = stats ? (stats.avg_duration_ms / 1000).toFixed(2) : '0'
 
   return (
-    <div style={{ padding: 24, height: '100%', overflowY: 'auto', boxSizing: 'border-box' }}>
+    <div className="admin-page task-admin-page">
       <Row gutter={16} style={{ marginBottom: 16 }}>
         <Col span={6}>
           <Card>
@@ -328,10 +315,9 @@ export default function TaskAdmin() {
         </Col>
       </Row>
 
-      <Card
-        title="任务列表"
-        extra={
-          <Space>
+      <Card title="任务列表" className="task-admin-page__table-card">
+        <div className="task-admin-page__filters">
+          <Space wrap size={[8, 8]}>
             <Select
               placeholder="时间范围"
               style={{ width: 120 }}
@@ -348,14 +334,14 @@ export default function TaskAdmin() {
             <Input
               placeholder="任务 ID"
               allowClear
-              style={{ width: 200 }}
+              style={{ width: 180 }}
               value={searchTaskId}
               onChange={(e) => { setSearchTaskId(e.target.value); setPage(1) }}
             />
             <Input
               placeholder="Trace ID"
               allowClear
-              style={{ width: 200 }}
+              style={{ width: 180 }}
               value={searchTraceId}
               onChange={(e) => { setSearchTraceId(e.target.value); setPage(1) }}
             />
@@ -427,13 +413,14 @@ export default function TaskAdmin() {
               刷新
             </Button>
           </Space>
-        }
-      >
+        </div>
+
         <Table
-          rowKey="id"
+          rowKey="task_id"
           loading={loading}
           dataSource={data}
           columns={columns}
+          size="middle"
           pagination={{
             current: page,
             pageSize,
@@ -443,7 +430,6 @@ export default function TaskAdmin() {
             showQuickJumper: true,
             showTotal: (t) => `共 ${t} 条`,
           }}
-          scroll={{ x: 1200 }}
         />
       </Card>
 
@@ -487,10 +473,10 @@ export default function TaskAdmin() {
                 {viewItem.duration_ms ? `${(viewItem.duration_ms / 1000).toFixed(2)}s` : '-'}
               </Descriptions.Item>
               <Descriptions.Item label="创建时间">
-                {viewItem.created_at?.replace('T', ' ').slice(0, 19)}
+                {formatServerDateTime(viewItem.created_at)}
               </Descriptions.Item>
               <Descriptions.Item label="更新时间">
-                {viewItem.updated_at?.replace('T', ' ').slice(0, 19) || '-'}
+                {formatServerDateTime(viewItem.updated_at)}
               </Descriptions.Item>
               <Descriptions.Item label="会话ID">
                 {viewItem.session_id || '-'}

@@ -17,7 +17,11 @@ class TaskService:
         self.collection = get_collection("tasks")
 
     async def create(self, model_code: str, category: str, params: Dict[str, Any],
-                     session_id: Optional[str] = None, user_id: Optional[str] = None) -> Dict[str, Any]:
+                     session_id: Optional[str] = None, user_id: Optional[str] = None,
+                     canvas_project_id: Optional[str] = None,
+                     canvas_node_id: Optional[str] = None,
+                     canvas_node_title: Optional[str] = None,
+                     canvas_node_type: Optional[str] = None) -> Dict[str, Any]:
         now = datetime.utcnow()
         task_id = generate_task_id()
         trace_id = generate_trace_id()
@@ -37,6 +41,10 @@ class TaskService:
             "channel_request": None,      # 渠道请求参数
             "channel_response": None,     # 渠道响应（视频类型包含创建和查询两次响应）
             "external_task_id": None,     # 第三方服务返回的任务ID（用于服务器重启后恢复状态）
+            "canvas_project_id": canvas_project_id,
+            "canvas_node_id": canvas_node_id,
+            "canvas_node_title": canvas_node_title,
+            "canvas_node_type": canvas_node_type,
             "created_at": now,
             "updated_at": now,
         }
@@ -324,8 +332,13 @@ class TaskService:
             "error_message": doc.get("error_message"),
             "duration_ms": doc.get("duration_ms"),
             "trace_id": doc.get("trace_id"),
+            "external_task_id": doc.get("external_task_id"),
             "channel_request": doc.get("channel_request"),      # 渠道请求参数
             "channel_response": doc.get("channel_response"),    # 渠道响应
+            "canvas_project_id": doc.get("canvas_project_id"),
+            "canvas_node_id": doc.get("canvas_node_id"),
+            "canvas_node_title": doc.get("canvas_node_title"),
+            "canvas_node_type": doc.get("canvas_node_type"),
             "created_at": doc["created_at"],
             "updated_at": doc["updated_at"],
         }

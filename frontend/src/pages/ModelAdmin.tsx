@@ -43,6 +43,7 @@ import type { ModelItem, ParamField, ChannelBinding, ChannelItem } from '@/types
 import ChannelBindingEditor from '@/components/ChannelBindingEditor'
 import IntegrationDebugDrawer from '@/components/IntegrationDebugDrawer'
 import { BUILTIN_PROFILE_OPTIONS } from '@/constants/onboarding'
+import { formatServerDateTime } from '@/utils/formatDateTime'
 
 const { TextArea } = Input
 const { Option } = Select
@@ -370,7 +371,7 @@ export default function ModelAdmin() {
       dataIndex: 'created_at',
       key: 'created_at',
       width: 180,
-      render: (v) => v?.replace('T', ' ').slice(0, 19),
+      render: (v) => formatServerDateTime(v),
     },
     {
       title: '操作',

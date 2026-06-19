@@ -170,6 +170,22 @@ class WeelinkingAdapter(BaseChannelAdapter):
         msg = str(exc).strip()
         return msg or f"{type(exc).__name__}: 未知网络错误"
 
+    def _raise_http_status_error(self, status_code: int, err_msg: str) -> None:
+        """记录上游 HTTP 错误并抛出，供 parse_error / 链路日志展示详情。"""
+        body: Any = err_msg
+        try:
+            body = json.loads(err_msg)
+        except Exception:
+            pass
+        self._last_http_error = {"status_code": status_code, "body": body}
+        if status_code == 401:
+            raise Exception(f"401 Unauthorized - API Key 无效或过期 (渠道响应: {err_msg})")
+        if status_code == 429:
+            raise Exception(f"429 Too Many Requests - 超出频率限制或配额不足 (渠道响应: {err_msg})")
+        if status_code >= 500:
+            raise Exception(f"{status_code} Server Error (渠道响应: {err_msg})")
+        raise Exception(f"HTTP {status_code}: {err_msg}")
+
     async def convert_params(self, model_config: Dict[str, Any], params: Dict[str, Any], endpoint_config: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         # 如果有端点配置，检查是否需要应用请求体规范
         if endpoint_config and endpoint_config.get("request_body"):
@@ -243,15 +259,7 @@ class WeelinkingAdapter(BaseChannelAdapter):
                     except Exception:
                         err_msg = response.text[:500]
                     logger.error(f"[{self.trace_id}] 渠道错误响应 HTTP {response.status_code}:\n{err_msg}")
-
-                    if response.status_code == 401:
-                        raise Exception(f"401 Unauthorized - API Key 无效或过期 (渠道响应: {err_msg})")
-                    elif response.status_code == 429:
-                        raise Exception(f"429 Too Many Requests - 超出频率限制或配额不足 (渠道响应: {err_msg})")
-                    elif response.status_code >= 500:
-                        raise Exception(f"{response.status_code} Server Error (渠道响应: {err_msg})")
-                    else:
-                        raise Exception(f"HTTP {response.status_code}: {err_msg}")
+                    self._raise_http_status_error(response.status_code, err_msg)
             except Exception as e:
                 last_error = e
                 logger.warning(
@@ -392,15 +400,7 @@ class WeelinkingAdapter(BaseChannelAdapter):
                     except Exception:
                         err_msg = response.text[:500]
                     logger.error(f"[{self.trace_id}] 渠道错误响应 HTTP {response.status_code}:\n{err_msg}")
-
-                    if response.status_code == 401:
-                        raise Exception(f"401 Unauthorized - API Key 无效或过期 (渠道响应: {err_msg})")
-                    elif response.status_code == 429:
-                        raise Exception(f"429 Too Many Requests - 超出频率限制或配额不足 (渠道响应: {err_msg})")
-                    elif response.status_code >= 500:
-                        raise Exception(f"{response.status_code} Server Error (渠道响应: {err_msg})")
-                    else:
-                        raise Exception(f"HTTP {response.status_code}: {err_msg}")
+                    self._raise_http_status_error(response.status_code, err_msg)
             except Exception as e:
                 last_error = e
                 logger.warning(
@@ -486,15 +486,7 @@ class WeelinkingAdapter(BaseChannelAdapter):
                             except Exception:
                                 err_msg = (await response.aread()).decode('utf-8')[:500]
                             logger.error(f"[{self.trace_id}] 渠道错误响应 HTTP {response.status_code}:\n{err_msg}")
-
-                            if response.status_code == 401:
-                                raise Exception(f"401 Unauthorized - API Key 无效或过期 (渠道响应: {err_msg})")
-                            elif response.status_code == 429:
-                                raise Exception(f"429 Too Many Requests - 超出频率限制或配额不足 (渠道响应: {err_msg})")
-                            elif response.status_code >= 500:
-                                raise Exception(f"{response.status_code} Server Error (渠道响应: {err_msg})")
-                            else:
-                                raise Exception(f"HTTP {response.status_code}: {err_msg}")
+                            self._raise_http_status_error(response.status_code, err_msg)
             except Exception as e:
                 last_error = e
                 logger.warning(
@@ -1110,37 +1102,63 @@ class WeelinkingAdapter(BaseChannelAdapter):
 
     async def _upload_base64_image(self, base64_data: str) -> Optional[str]:
         """将base64图片上传到GitHub存储，返回CDN URL"""
+        return await self._upload_base64_blob(base64_data, ".png", "image/png")
+
+    async def _upload_base64_blob(
+        self, base64_data: str, ext: str = ".png", content_type: str = "image/png"
+    ) -> Optional[str]:
+        """将 base64 二进制上传到存储，返回 CDN URL"""
         try:
             import base64
             from app.services.storage_service import get_storage_service
             from datetime import datetime
-            
-            # 解码base64数据（兼容纯 base64 与 data:image/...;base64, 前缀）
+
             raw = base64_data.strip()
             if raw.startswith("data:"):
                 raw = raw.split(",", 1)[1]
-            image_data = base64.b64decode(raw)
-            
-            # 生成文件名
+            blob = base64.b64decode(raw)
+
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            filename = f"generated_{timestamp}.png"
-            
-            # 上传到GitHub
+            filename = f"generated_{timestamp}{ext}"
+
             storage = get_storage_service()
             if not storage.enabled:
-                logger.warning(f"[{self.trace_id}] 存储服务未启用，无法上传图片")
+                logger.warning(f"[{self.trace_id}] 存储服务未启用，无法上传 base64 媒体")
                 return None
-            
-            url = await storage.upload_generated_image(image_data, filename, "image/png")
-            if url:
-                logger.info(f"[{self.trace_id}] 图片上传成功: {url}")
-                return url
+
+            if content_type.startswith("video/"):
+                url = await storage.upload_generated_video(blob, filename, content_type)
             else:
-                logger.warning(f"[{self.trace_id}] 图片上传失败")
-                return None
-        except Exception as e:
-            logger.error(f"[{self.trace_id}] 上传base64图片异常: {e}")
+                url = await storage.upload_generated_image(blob, filename, content_type)
+            if url:
+                logger.info(f"[{self.trace_id}] base64 媒体上传成功: {url[:80]}")
+                return url
+            logger.warning(f"[{self.trace_id}] base64 媒体上传失败")
             return None
+        except Exception as e:
+            logger.error(f"[{self.trace_id}] 上传 base64 媒体异常: {e}")
+            return None
+
+    async def normalize_parsed_result(
+        self,
+        parsed: Dict[str, Any],
+        raw_result: Dict[str, Any],
+        category: str,
+        endpoint_config: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        from app.core.channel_media import enrich_parsed_result
+
+        async def upload_b64(data: str, ext: str) -> Optional[str]:
+            ctype = "video/mp4" if ext == ".mp4" else "image/png"
+            return await self._upload_base64_blob(data, ext, ctype)
+
+        return await enrich_parsed_result(
+            parsed,
+            raw_result.get("response", raw_result),
+            category,
+            upload_b64=upload_b64,
+            trace_id=self.trace_id,
+        )
 
     async def parse_result(self, category: str, raw_result: Dict[str, Any], endpoint_config: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         result_type = raw_result.get("type", category)
@@ -1225,10 +1243,17 @@ class WeelinkingAdapter(BaseChannelAdapter):
                 if isinstance(item, str):
                     videos.append({"url": item, "revised_prompt": ""})
                 elif isinstance(item, dict):
-                    videos.append({
-                        "url": item.get("url"),
-                        "revised_prompt": item.get("revised_prompt", ""),
-                    })
+                    url = item.get("url") or item.get("video_url")
+                    if not url and item.get("b64_json"):
+                        uploaded = await self._upload_base64_blob(
+                            item["b64_json"], ".mp4", "video/mp4"
+                        )
+                        url = uploaded or f"data:video/mp4;base64,{item['b64_json']}"
+                    if url:
+                        videos.append({
+                            "url": url,
+                            "revised_prompt": item.get("revised_prompt", ""),
+                        })
             return {
                 "type": "video",
                 "videos": videos,
@@ -1262,19 +1287,28 @@ class WeelinkingAdapter(BaseChannelAdapter):
         if isinstance(exception, httpx.TimeoutException):
             return "timeout", "生成超时：渠道可能仍在处理，请稍后重试或增大渠道超时配置"
 
-        err_msg = str(exception).lower()
+        err_msg = str(exception)
+        err_lower = err_msg.lower()
+        upstream = ""
+        if "渠道响应:" in err_msg:
+            upstream = err_msg.split("渠道响应:", 1)[1].strip()
+            if len(upstream) > 400:
+                upstream = upstream[:400] + "…"
 
-        if "401" in err_msg or "unauthorized" in err_msg or "invalid" in err_msg and "key" in err_msg:
-            return "channel_error", "渠道鉴权失败，请检查API密钥"
-        elif "429" in err_msg or "rate" in err_msg or "quota" in err_msg or "frequency" in err_msg:
-            return "service_unavailable", "模型服务繁忙，请稍后再试"
-        elif "timeout" in err_msg or "timed out" in err_msg:
-            return "timeout", "生成超时，请稍后重试"
-        elif "content_policy" in err_msg or "safety" in err_msg or "violation" in err_msg:
-            return "content_violation", "内容不符合规范，请调整提示词"
-        elif "not_found" in err_msg or "404" in err_msg or "not found" in err_msg:
-            return "channel_error", "模型不存在或已下线"
-        elif "500" in err_msg or "502" in err_msg or "503" in err_msg or "server" in err_msg:
-            return "service_unavailable", "服务暂不可用"
+        def with_upstream(base: str) -> str:
+            return f"{base}（上游: {upstream}）" if upstream else base
+
+        if "401" in err_lower or "unauthorized" in err_lower or "invalid" in err_lower and "key" in err_lower:
+            return "channel_error", with_upstream("渠道鉴权失败，请检查API密钥")
+        elif "429" in err_lower or "rate" in err_lower or "quota" in err_lower or "frequency" in err_lower:
+            return "service_unavailable", with_upstream("模型服务繁忙，请稍后再试")
+        elif "timeout" in err_lower or "timed out" in err_lower:
+            return "timeout", with_upstream("生成超时，请稍后重试")
+        elif "content_policy" in err_lower or "safety" in err_lower or "violation" in err_lower:
+            return "content_violation", with_upstream("内容不符合规范，请调整提示词")
+        elif "not_found" in err_lower or "404" in err_lower or "not found" in err_lower:
+            return "channel_error", with_upstream("模型不存在或已下线")
+        elif "500" in err_lower or "502" in err_lower or "503" in err_lower or "server error" in err_lower:
+            return "service_unavailable", with_upstream("服务暂不可用")
         else:
-            return "internal_error", f"生成失败: {str(exception)[:200]}"
+            return "internal_error", f"生成失败: {err_msg[:200]}"

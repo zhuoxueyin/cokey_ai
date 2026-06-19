@@ -46,13 +46,14 @@ class CanvasService:
 
     async def list_projects(self, user_id: Optional[str] = None, page: int = 1, page_size: int = 50) -> Tuple[List[Dict], int]:
         query: Dict[str, Any] = {}
-        if user_id:
-            # 同时列出当前用户项目 + 未绑定 user_id 的历史项目（避免列表里看不到旧项目）
+        if user_id and user_id != "default_user":
+            # 当前用户 + 未绑定 + 创建时未登录的 default_user 历史项目
             query["$or"] = [
                 {"user_id": user_id},
                 {"user_id": None},
                 {"user_id": ""},
                 {"user_id": {"$exists": False}},
+                {"user_id": "default_user"},
             ]
         total = await self.projects.count_documents(query)
         skip = (page - 1) * page_size
@@ -105,6 +106,7 @@ class CanvasService:
             "node_type": node_type,
             "title": title,
             "position": data.get("position") or {"x": 0, "y": 0},
+            "parent_id": data.get("parent_id"),
             "config": data.get("config") or {},
             "result": None,
             "result_version": 0,
@@ -128,16 +130,31 @@ class CanvasService:
 
     async def list_nodes(self, project_id: str) -> List[Dict[str, Any]]:
         cursor = self.nodes.find({"project_id": project_id}).sort("created_at", 1)
-        return [self._node_response(doc) async for doc in cursor]
+        rows: List[Dict[str, Any]] = []
+        async for doc in cursor:
+            if doc.get("status") == "running":
+                await self._reconcile_node_run_status(project_id, doc["node_id"])
+                doc = await self.nodes.find_one({"project_id": project_id, "node_id": doc["node_id"]}) or doc
+            rows.append(self._node_response(doc))
+        return rows
 
     async def get_node(self, project_id: str, node_id: str) -> Optional[Dict[str, Any]]:
+        doc = await self.nodes.find_one({"project_id": project_id, "node_id": node_id})
+        if not doc:
+            return None
+        await self._reconcile_node_run_status(project_id, node_id)
         doc = await self.nodes.find_one({"project_id": project_id, "node_id": node_id})
         return self._node_response(doc) if doc else None
 
     async def update_node(self, project_id: str, node_id: str, updates: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         allowed: Dict[str, Any] = {}
-        for key in ("title", "position", "config", "status", "input_stale", "result"):
-            if key in updates and updates[key] is not None:
+        for key in ("title", "position", "config", "status", "input_stale", "result", "parent_id"):
+            if key not in updates:
+                continue
+            if key == "parent_id":
+                allowed["parent_id"] = updates["parent_id"]
+                continue
+            if updates[key] is not None:
                 allowed[key] = updates[key]
         if "config" in allowed:
             current = await self.nodes.find_one({"project_id": project_id, "node_id": node_id})
@@ -215,6 +232,8 @@ class CanvasService:
         target = await self.nodes.find_one({"project_id": project_id, "node_id": target_id})
         if not source or not target:
             return None
+        if source.get("node_type") == "group" or target.get("node_type") == "group":
+            return None
         existing = await self.edges.find_one({
             "project_id": project_id,
             "source_node_id": source_id,
@@ -266,6 +285,8 @@ class CanvasService:
                 updates["position"] = node["position"]
             if "title" in node:
                 updates["title"] = node["title"]
+            if "parent_id" in node:
+                updates["parent_id"] = node["parent_id"]
             if updates:
                 await self.update_node(project_id, node_id, updates)
         return await self.get_project(project_id)
@@ -285,6 +306,8 @@ class CanvasService:
             return {"success": False, "error_code": "not_found", "error_message": "节点不存在"}
         if node["node_type"] == "resource":
             return {"success": False, "error_code": "validation_error", "error_message": "资源节点无需运行"}
+        if node["node_type"] == "group":
+            return {"success": False, "error_code": "validation_error", "error_message": "分组框不可运行"}
 
         config = deepcopy(node.get("config") or {})
         if config_override:
@@ -307,7 +330,12 @@ class CanvasService:
             return {"success": False, "error_code": "model_offline", "error_message": "模型已下架"}
 
         upstream_inputs, snapshot = await self._collect_upstream_inputs(project_id, node_id)
-        params = self._build_run_params(node["node_type"], config, upstream_inputs)
+        ref_contents = await self._collect_ref_contents(project_id, node_id)
+        ref_ids = self._extract_prompt_ref_ids(config)
+        ref_image_urls = await self._collect_ref_image_urls(project_id, node_id, ref_ids)
+        params = self._build_run_params(
+            node["node_type"], config, upstream_inputs, ref_contents, ref_image_urls
+        )
 
         if category == "image":
             from app.core.image_size_spec import normalize_image_size
@@ -321,16 +349,28 @@ class CanvasService:
             params = normalized
 
         if category in ("image", "video"):
+            await self._mirror_params_images_to_cdn(params, trace_hint=f"canvas:{project_id}:{node_id}")
+
+        if category in ("image", "video", "text"):
             from app.core.cdn import validate_reference_images
             try:
                 validate_reference_images(params)
             except ValueError as ve:
                 return {"success": False, "error_code": "validation_error", "error_message": str(ve)}
 
-        await self.nodes.update_one(
-            {"project_id": project_id, "node_id": node_id},
-            {"$set": {"status": "running", "error_message": None, "updated_at": datetime.utcnow()}},
-        )
+        if node.get("status") == "running":
+            await self._reconcile_node_run_status(project_id, node_id)
+            node = await self.nodes.find_one({"project_id": project_id, "node_id": node_id})
+            if not node:
+                return {"success": False, "error_code": "not_found", "error_message": "节点不存在"}
+
+        latest_task = await self._get_latest_canvas_task(project_id, node_id)
+        if latest_task and latest_task.get("status") == "processing":
+            return {
+                "success": False,
+                "error_code": "validation_error",
+                "error_message": "节点正在生成中，请稍候",
+            }
 
         task = await get_task_service().create(
             model_code=model_code,
@@ -338,7 +378,24 @@ class CanvasService:
             params=params,
             session_id=session_id,
             user_id=user_id,
+            canvas_project_id=project_id,
+            canvas_node_id=node_id,
+            canvas_node_title=node.get("title"),
+            canvas_node_type=node.get("node_type"),
         )
+
+        await self.nodes.update_one(
+            {"project_id": project_id, "node_id": node_id},
+            {
+                "$set": {
+                    "status": "running",
+                    "error_message": None,
+                    "task_id": task["task_id"],
+                    "updated_at": datetime.utcnow(),
+                }
+            },
+        )
+
         trace_svc = get_trace_log_service()
         await trace_svc.ensure_log(
             task["trace_id"],
@@ -366,6 +423,10 @@ class CanvasService:
 
         if result.get("success"):
             result_data = result.get("data") or {}
+            if node["node_type"] == "image":
+                result_data = await self._mirror_result_images_to_cdn(
+                    result_data, task.get("trace_id", "")
+                )
             new_version = (node.get("result_version") or 0) + 1
             if node["node_type"] == "image":
                 imgs = result_data.get("images") or []
@@ -423,7 +484,216 @@ class CanvasService:
         )
         return await self.get_node(project_id, node_id)
 
+    # ── Run history ────────────────────────────────────────────
+
+    async def _project_run_task_ids_from_traces(self, project_id: str) -> List[str]:
+        trace_col = get_trace_log_service().collection
+        cursor = trace_col.find(
+            {"steps": {"$elemMatch": {"step": "canvas_node_run", "data.project_id": project_id}}},
+            {"task_id": 1},
+        )
+        ids: List[str] = []
+        seen = set()
+        async for doc in cursor:
+            tid = doc.get("task_id")
+            if tid and tid not in seen:
+                seen.add(tid)
+                ids.append(tid)
+        return ids
+
+    def _project_runs_query(self, project_id: str, legacy_task_ids: List[str]) -> Dict[str, Any]:
+        clauses: List[Dict[str, Any]] = [{"canvas_project_id": project_id}]
+        if legacy_task_ids:
+            clauses.append({"task_id": {"$in": legacy_task_ids}})
+        return {"$or": clauses} if len(clauses) > 1 else clauses[0]
+
+    async def _enrich_run_row(self, project_id: str, task: Dict[str, Any]) -> Dict[str, Any]:
+        node_id = task.get("canvas_node_id")
+        node_title = task.get("canvas_node_title")
+        node_type = task.get("canvas_node_type")
+        if node_id and (not node_title or not node_type):
+            node = await self.nodes.find_one({"project_id": project_id, "node_id": node_id})
+            if node:
+                node_title = node_title or node.get("title")
+                node_type = node_type or node.get("node_type")
+        if not node_id:
+            trace_col = get_trace_log_service().collection
+            log = await trace_col.find_one({"task_id": task.get("task_id")})
+            if log:
+                for step in reversed(log.get("steps") or []):
+                    if step.get("step") == "canvas_node_run":
+                        data = step.get("data") or {}
+                        if data.get("project_id") == project_id:
+                            node_id = data.get("node_id") or node_id
+                            break
+                if node_id and not node_title:
+                    node = await self.nodes.find_one({"project_id": project_id, "node_id": node_id})
+                    if node:
+                        node_title = node.get("title")
+                        node_type = node_type or node.get("node_type")
+        return {
+            "task_id": task["task_id"],
+            "trace_id": task.get("trace_id"),
+            "project_id": project_id,
+            "canvas_project_id": task.get("canvas_project_id") or project_id,
+            "node_id": node_id,
+            "canvas_node_id": node_id,
+            "node_title": node_title or "未命名节点",
+            "node_type": node_type,
+            "canvas_node_type": node_type,
+            "model_code": task.get("model_code"),
+            "channel_code": task.get("channel_code"),
+            "external_task_id": task.get("external_task_id"),
+            "category": task.get("category"),
+            "status": task.get("status"),
+            "params_summary": task.get("params_summary"),
+            "error_message": task.get("error_message"),
+            "duration_ms": task.get("duration_ms"),
+            "created_at": task.get("created_at"),
+            "updated_at": task.get("updated_at"),
+        }
+
+    async def list_project_runs(
+        self, project_id: str, page: int = 1, page_size: int = 30
+    ) -> Tuple[List[Dict[str, Any]], int]:
+        legacy_ids = await self._project_run_task_ids_from_traces(project_id)
+        query = self._project_runs_query(project_id, legacy_ids)
+        task_col = get_task_service().collection
+        total = await task_col.count_documents(query)
+        skip = (page - 1) * page_size
+        cursor = task_col.find(query).sort("created_at", -1).skip(skip).limit(page_size)
+        rows = []
+        async for doc in cursor:
+            task = get_task_service()._to_response(doc)
+            rows.append(await self._enrich_run_row(project_id, task))
+        return rows, total
+
+    async def get_project_run(self, project_id: str, task_id: str) -> Optional[Dict[str, Any]]:
+        task = await get_task_service().get_by_id(task_id)
+        if not task:
+            return None
+        if task.get("canvas_project_id") == project_id:
+            return await self._enrich_run_row(project_id, task) | {
+                "result": task.get("result"),
+                "params": task.get("params"),
+                "channel_code": task.get("channel_code"),
+                "external_task_id": task.get("external_task_id"),
+                "channel_request": task.get("channel_request"),
+                "channel_response": task.get("channel_response"),
+            }
+        legacy_ids = await self._project_run_task_ids_from_traces(project_id)
+        if task_id not in legacy_ids:
+            return None
+        return await self._enrich_run_row(project_id, task) | {
+            "result": task.get("result"),
+            "params": task.get("params"),
+            "channel_code": task.get("channel_code"),
+            "external_task_id": task.get("external_task_id"),
+            "channel_request": task.get("channel_request"),
+            "channel_response": task.get("channel_response"),
+        }
+
+    async def task_belongs_to_project(self, project_id: str, task_id: str) -> bool:
+        run = await self.get_project_run(project_id, task_id)
+        return run is not None
+
     # ── Helpers ────────────────────────────────────────────────
+
+    async def _get_latest_canvas_task(self, project_id: str, node_id: str) -> Optional[Dict[str, Any]]:
+        return await get_task_service().collection.find_one(
+            {"canvas_project_id": project_id, "canvas_node_id": node_id},
+            sort=[("created_at", -1)],
+        )
+
+    async def _reconcile_node_run_status(self, project_id: str, node_id: str) -> None:
+        """任务已成功/失败但节点仍停留在 running 时自动对齐（如并发二次运行）。"""
+        doc = await self.nodes.find_one({"project_id": project_id, "node_id": node_id})
+        if not doc or doc.get("status") != "running":
+            return
+        latest = await self._get_latest_canvas_task(project_id, node_id)
+        if not latest:
+            return
+        task_status = latest.get("status")
+        if task_status == "processing":
+            return
+        now = datetime.utcnow()
+        task_id = latest.get("task_id")
+        if task_status == "success":
+            result_data = latest.get("result") or doc.get("result")
+            new_version = int(doc.get("result_version") or 0)
+            if result_data and result_data != doc.get("result"):
+                new_version += 1
+            await self.nodes.update_one(
+                {"project_id": project_id, "node_id": node_id},
+                {
+                    "$set": {
+                        "status": "success",
+                        "result": result_data,
+                        "result_version": new_version,
+                        "task_id": task_id,
+                        "error_message": None,
+                        "updated_at": now,
+                    }
+                },
+            )
+        elif task_status == "failed":
+            await self.nodes.update_one(
+                {"project_id": project_id, "node_id": node_id},
+                {
+                    "$set": {
+                        "status": "failed",
+                        "error_message": latest.get("error_message") or "生成失败",
+                        "task_id": task_id,
+                        "updated_at": now,
+                    }
+                },
+            )
+
+    async def _mirror_params_images_to_cdn(self, params: Dict[str, Any], trace_hint: str = "") -> None:
+        """上游生成图常为外部 URL，运行前镜像到 CDN 以满足 validate_reference_images。"""
+        from app.adapters.weelinking import _ensure_cdn_url
+        from app.core.cdn import extract_url_from_image_item, is_cdn_url
+
+        raw = params.get("images")
+        if raw is None:
+            raw = params.get("image")
+        if not raw:
+            return
+        items = raw if isinstance(raw, list) else [raw]
+        out: List[str] = []
+        for item in items:
+            url = extract_url_from_image_item(item)
+            if not url:
+                continue
+            if is_cdn_url(url):
+                out.append(url)
+            else:
+                out.append(await _ensure_cdn_url(url, trace_hint))
+        if out:
+            params["images"] = out
+            params.pop("image", None)
+
+    async def _mirror_result_images_to_cdn(
+        self, result_data: Dict[str, Any], trace_id: str = ""
+    ) -> Dict[str, Any]:
+        """生图结果落库前镜像到 CDN，便于下游节点直接引用。"""
+        from app.adapters.weelinking import _ensure_cdn_url
+        from app.core.cdn import extract_url_from_image_item, is_cdn_url
+
+        imgs = result_data.get("images") or []
+        if not imgs:
+            return result_data
+        mirrored: List[Dict[str, Any]] = []
+        for img in imgs:
+            url = extract_url_from_image_item(img)
+            if not url:
+                continue
+            cdn = url if is_cdn_url(url) else await _ensure_cdn_url(url, trace_id)
+            if isinstance(img, dict):
+                mirrored.append({**img, "url": cdn, "cdn_url": cdn})
+            else:
+                mirrored.append({"url": cdn, "cdn_url": cdn})
+        return {**result_data, "images": mirrored}
 
     async def _collect_upstream_inputs(self, project_id: str, node_id: str) -> Tuple[Dict[str, Any], Dict[str, Any]]:
         edges = await self.edges.find({"project_id": project_id, "target_node_id": node_id}).to_list(length=100)
@@ -473,14 +743,90 @@ class CanvasService:
 
         return {"texts": texts, "images": images, "videos": videos}, snapshot
 
-    def _build_run_params(self, node_type: str, config: Dict[str, Any], upstream: Dict[str, Any]) -> Dict[str, Any]:
+    async def _collect_ref_contents(self, project_id: str, node_id: str) -> Dict[str, str]:
+        from app.core.canvas_prompt import image_url_from_source_node, text_from_source_node
+
+        edges = await self.edges.find({"project_id": project_id, "target_node_id": node_id}).to_list(length=100)
+        contents: Dict[str, str] = {}
+        for edge in edges:
+            source = await self.nodes.find_one({"project_id": project_id, "node_id": edge["source_node_id"]})
+            if not source:
+                continue
+            src_type = source.get("node_type")
+            if src_type == "text":
+                text = text_from_source_node(source)
+                if text:
+                    contents[source["node_id"]] = text
+            elif src_type in ("image", "resource") and image_url_from_source_node(source):
+                # @ 引用图片时占位符替换为空，实际 URL 走 params.images
+                contents[source["node_id"]] = ""
+        return contents
+
+    def _extract_prompt_ref_ids(self, config: Dict[str, Any]) -> List[str]:
+        from app.core.canvas_prompt import extract_ref_node_ids
+
+        return extract_ref_node_ids((config.get("prompt") or "").strip())
+
+    async def _collect_ref_image_urls(
+        self,
+        project_id: str,
+        node_id: str,
+        ref_ids: Optional[List[str]] = None,
+    ) -> List[str]:
+        from app.core.canvas_prompt import image_url_from_source_node
+
+        urls: List[str] = []
+        seen: set[str] = set()
+
+        def add(url: Optional[str]) -> None:
+            if not url or url in seen:
+                return
+            seen.add(url)
+            urls.append(url)
+
+        edges = await self.edges.find({"project_id": project_id, "target_node_id": node_id}).to_list(length=100)
+        for edge in edges:
+            source = await self.nodes.find_one({"project_id": project_id, "node_id": edge["source_node_id"]})
+            if not source:
+                continue
+            add(image_url_from_source_node(source))
+
+        if ref_ids:
+            for ref_id in ref_ids:
+                source = await self.nodes.find_one({"project_id": project_id, "node_id": ref_id})
+                if source:
+                    add(image_url_from_source_node(source))
+        return urls
+
+    def _build_run_params(
+        self,
+        node_type: str,
+        config: Dict[str, Any],
+        upstream: Dict[str, Any],
+        ref_contents: Optional[Dict[str, str]] = None,
+        ref_image_urls: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
+        from app.core.canvas_prompt import expand_prompt_refs, extract_ref_node_ids
+
         params = deepcopy(config.get("params") or {})
-        prompt = (config.get("prompt") or "").strip()
-        upstream_text = "\n".join(upstream.get("texts") or []).strip()
-        if upstream_text:
-            prompt = f"{upstream_text}\n\n{prompt}".strip() if prompt else upstream_text
+        raw_prompt = (config.get("prompt") or "").strip()
+        ref_ids = extract_ref_node_ids(raw_prompt)
+        if ref_ids:
+            prompt = expand_prompt_refs(raw_prompt, ref_contents or {})
+        else:
+            # 与创作流一致：仅使用用户输入的 prompt，不静默拼接上游文本
+            prompt = raw_prompt
+        prompt = (prompt or "").strip()
         if prompt:
             params["prompt"] = prompt
+
+        if node_type == "text":
+            images: List[str] = []
+            for url in (ref_image_urls or []) + (upstream.get("images") or []):
+                if url and url not in images:
+                    images.append(url)
+            if images:
+                params["images"] = images
 
         if node_type in ("image", "video"):
             images = list(upstream.get("images") or [])
@@ -543,7 +889,7 @@ class CanvasService:
         return {"type": "image", "images": [{"url": url}], "count": 1}
 
     def _default_node_title(self, node_type: str) -> str:
-        labels = {"resource": "资源", "text": "文本节点", "image": "图片节点", "video": "视频节点"}
+        labels = {"resource": "资源", "text": "文本节点", "image": "图片节点", "video": "视频节点", "group": "分组"}
         return labels.get(node_type, "节点")
 
     def _project_response(self, doc: Dict[str, Any]) -> Dict[str, Any]:
@@ -565,6 +911,7 @@ class CanvasService:
             "node_type": doc["node_type"],
             "title": doc.get("title"),
             "position": doc.get("position") or {"x": 0, "y": 0},
+            "parent_id": doc.get("parent_id"),
             "config": doc.get("config") or {},
             "result": doc.get("result"),
             "result_version": doc.get("result_version") or 0,

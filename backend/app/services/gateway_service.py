@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from typing import Any, Dict, List, Optional, Tuple
-from datetime import datetime
+from datetime import datetime, timezone
 import json
 import time
 
@@ -125,7 +125,7 @@ class ModelGateway:
             "channel_provider": channel.get("channel_provider"),
             "base_url": channel.get("base_url", ""),
             "original_params": params,
-            "timestamp": datetime.now().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         }
         if route_ctx is not None:
             req.update(route_ctx.to_trace_dict())
@@ -149,6 +149,8 @@ class ModelGateway:
                 "error_code": result.get("error_code"),
                 "error_message": result.get("error_message"),
             }
+            if hasattr(adapter, "_last_http_error") and getattr(adapter, "_last_http_error", None):
+                channel_response["error"]["upstream"] = adapter._last_http_error
             if hasattr(adapter, "_http_request_info") and adapter._http_request_info:
                 channel_response["http_request"] = adapter._http_request_info
         return channel_response
@@ -220,7 +222,7 @@ class ModelGateway:
             "channel_provider": channel.get("channel_provider"),
             "base_url": channel.get("base_url", ""),
             "original_params": params,
-            "timestamp": datetime.now().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
             "awaiting_http": True,
             **route_ctx.to_trace_dict(),
         }

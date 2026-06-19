@@ -26,6 +26,7 @@ import {
 } from '@ant-design/icons'
 import { listTraceLogsAdmin, getTraceLogAdmin } from '@/api'
 import type { TraceLogItem, TraceLogChannelAttempt } from '@/types'
+import { formatServerDateTime } from '@/utils/formatDateTime'
 
 const { Option } = Select
 const { Text, Paragraph } = Typography
@@ -149,7 +150,7 @@ function TraceLogDetail({
                     {item.duration_ms != null ? `${(item.duration_ms / 1000).toFixed(2)}s` : '-'}
                   </Descriptions.Item>
                   <Descriptions.Item label="创建时间">
-                    {item.created_at ? String(item.created_at).replace('T', ' ').slice(0, 19) : '-'}
+                    {formatServerDateTime(item.created_at)}
                   </Descriptions.Item>
                   {item.error_message && (
                     <Descriptions.Item label="错误">
@@ -206,7 +207,7 @@ function TraceLogDetail({
                           <div style={{ fontWeight: 500, fontSize: 13 }}>
                             {stepLabelMap[s.step] || s.step}
                             <Text type="secondary" style={{ fontSize: 11, marginLeft: 8 }}>
-                              {s.timestamp?.replace('T', ' ').slice(0, 19)}
+                              {formatServerDateTime(s.timestamp)}
                             </Text>
                           </div>
                           {s.data && Object.keys(s.data).length > 0 && (
@@ -406,7 +407,7 @@ export default function TraceLogAdmin() {
       dataIndex: 'created_at',
       key: 'created_at',
       width: 150,
-      render: (v) => (v ? String(v).replace('T', ' ').slice(0, 19) : '-'),
+      render: (v) => formatServerDateTime(v),
     },
     {
       title: '操作',

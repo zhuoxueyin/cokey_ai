@@ -2,6 +2,8 @@ from pydantic import BaseModel, Field
 from typing import Any, Dict, Optional
 from datetime import datetime
 
+from app.core.datetime_utils import normalize_for_json
+
 
 class ErrorResponse(BaseModel):
     code: str
@@ -54,7 +56,7 @@ def success(data: Any = None, message: str = None) -> Dict[str, Any]:
     return {
         "code": "success",
         "message": message or ERROR_CODES["success"],
-        "data": data,
+        "data": normalize_for_json(data) if data is not None else None,
     }
 
 
@@ -62,7 +64,7 @@ def paginated(data: Any, total: int, page: int, page_size: int) -> Dict[str, Any
     return {
         "code": "success",
         "message": ERROR_CODES["success"],
-        "data": data,
+        "data": normalize_for_json(data),
         "total": total,
         "page": page,
         "page_size": page_size,

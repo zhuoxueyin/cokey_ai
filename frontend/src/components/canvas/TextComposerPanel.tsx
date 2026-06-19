@@ -1,22 +1,29 @@
 import { useEffect, useState } from 'react'
-import { Button, Input, Popover, Select } from 'antd'
+import { Button, Popover, Select } from 'antd'
 import { ArrowUpOutlined, DownOutlined, RobotOutlined, CheckOutlined, BulbOutlined } from '@ant-design/icons'
 import { getModels } from '@/api'
 import { getPublishedPrompts } from '@/api/prompt'
 import type { ModelItem, PromptItem } from '@/types'
 import type { CanvasNodeConfig } from '@/types/canvas'
+import type { CanvasUpstreamRef } from '@/utils/canvasUpstream'
+import CanvasPromptInput from './CanvasPromptInput'
 import { canvasPopoverProps } from './canvasPopover'
-
-const { TextArea } = Input
 
 interface TextComposerPanelProps {
   config: CanvasNodeConfig
+  upstreamRefs?: CanvasUpstreamRef[]
   running?: boolean
   onRun: (config: CanvasNodeConfig) => void
   onUpdateConfig: (patch: Partial<CanvasNodeConfig>) => void
 }
 
-export default function TextComposerPanel({ config, running, onRun, onUpdateConfig }: TextComposerPanelProps) {
+export default function TextComposerPanel({
+  config,
+  upstreamRefs = [],
+  running,
+  onRun,
+  onUpdateConfig,
+}: TextComposerPanelProps) {
   const [models, setModels] = useState<ModelItem[]>([])
   const [promptList, setPromptList] = useState<PromptItem[]>([])
   const [prompt, setPrompt] = useState(config.prompt || '')
@@ -95,12 +102,14 @@ export default function TextComposerPanel({ config, running, onRun, onUpdateConf
 
   return (
     <div className="canvas-text-composer canvas-text-composer--generate">
-      <TextArea
+      <CanvasPromptInput
         value={prompt}
-        onChange={(e) => setPrompt(e.target.value)}
-        onBlur={() => onUpdateConfig({ prompt })}
-        placeholder="请描述你的需求，用AI生成文案"
-        autoSize={{ minRows: 1, maxRows: 4 }}
+        onChange={(next) => {
+          setPrompt(next)
+          onUpdateConfig({ prompt: next })
+        }}
+        refs={upstreamRefs}
+        placeholder="描述需求；输入 @ 引用上游文本或图片"
         className="canvas-run-panel__input canvas-run-panel__input--large"
       />
       <div className="canvas-text-composer__footer canvas-composer-footer--single-row">

@@ -209,6 +209,11 @@ class BaseChannelAdapter(ABC):
             else:
                 result = await self.parse_result(category, raw_result, endpoint_config)
 
+            if hasattr(self, "normalize_parsed_result"):
+                result = await self.normalize_parsed_result(
+                    result, raw_result, category, endpoint_config
+                )
+
             duration_ms = int((time.time() - start_time) * 1000)
             logger.info(f"[{self.trace_id}] 结果解析完成, 耗时={duration_ms}ms")
 

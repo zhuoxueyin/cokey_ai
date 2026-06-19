@@ -1,5 +1,5 @@
 import { useEffect, useRef, useMemo, useState } from 'react'
-import { Button, Input, Popover, Segmented, message } from 'antd'
+import { Button, Popover, Segmented, message } from 'antd'
 import {
   ArrowUpOutlined,
   BulbOutlined,
@@ -13,6 +13,8 @@ import type { ModelItem, PromptItem } from '@/types'
 import type { CanvasNodeConfig } from '@/types/canvas'
 import type { CanvasUpstreamPreview } from '@/utils/canvasUpstream'
 import UpstreamInputChips from './UpstreamInputChips'
+import CanvasPromptInput from './CanvasPromptInput'
+import { hasPromptContent } from '@/utils/canvasPromptMention'
 import {
   type AspectRatioKey,
   type ImageClarity,
@@ -28,8 +30,6 @@ import {
   toRatioOptions,
 } from '@/constants/imageSizeSpec'
 import { canvasPopoverProps } from './canvasPopover'
-
-const { TextArea } = Input
 
 type ImageQuality = 'auto' | 'low' | 'medium' | 'high'
 type ImageBackground = 'auto' | 'transparent' | 'opaque'
@@ -241,8 +241,8 @@ export default function ImageComposerPanel({
       message.warning('请先选择模型')
       return
     }
-    if (!state.prompt.trim() && upstream.texts.length === 0) {
-      message.warning('请输入描述或连接上游文本节点')
+    if (!hasPromptContent(state.prompt, upstream.images.length > 0)) {
+      message.warning('请输入描述、@ 引用上游或连接参考图')
       return
     }
     onRun({
@@ -387,11 +387,11 @@ export default function ImageComposerPanel({
     <div className="canvas-image-composer">
       <UpstreamInputChips upstream={upstream} />
 
-      <TextArea
+      <CanvasPromptInput
         value={state.prompt}
-        onChange={(e) => patchState({ prompt: e.target.value })}
-        placeholder="可直接文字生图，或连接上游节点引入提示词与参考图"
-        autoSize={{ minRows: 1, maxRows: 4 }}
+        onChange={(prompt) => patchState({ prompt })}
+        refs={upstream.refs}
+        placeholder="描述画面；输入 @ 引用上游文本或图片"
         className="canvas-run-panel__input canvas-run-panel__input--large"
       />
 

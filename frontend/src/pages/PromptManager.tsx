@@ -36,6 +36,7 @@ import {
   getPromptVersions,
 } from '../api/prompt';
 import { useGenerationStore } from '../store/generation';
+import { formatServerDateTime } from '@/utils/formatDateTime';
 const { TextArea } = Input;
 const { Option } = Select;
 const categoryMap: Record<string, string> = {
@@ -223,7 +224,7 @@ export default function PromptManager() {
  title: '更新时间',
  dataIndex: 'updated_at',
  key: 'updated_at',
- render: (time: string) => new Date(time).toLocaleString(),
+ render: (time: string) => formatServerDateTime(time),
  },
  {
  title: '操作',
@@ -304,7 +305,7 @@ export default function PromptManager() {
  <div>
  <span style={{ fontWeight: 'bold' }}>v{version.version}</span>
  <span style={{ marginLeft: 12 }}>
- {new Date(version.created_at).toLocaleString()}
+ {formatServerDateTime(version.created_at)}
  </span>
  {version.comment && (<span style={{ marginLeft: 12, color: '#999' }}>
  {version.comment}

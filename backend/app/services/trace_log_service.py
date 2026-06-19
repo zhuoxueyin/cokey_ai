@@ -28,11 +28,13 @@ class TraceLogService:
         if isinstance(data, list):
             return [self._truncate(item, max_str) for item in data[:50]]
         if isinstance(data, str):
-            if data.startswith("data:image/") or (
-                len(data) > 1000
-                and all(c in "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=" for c in data[:500])
+            if data.startswith("data:image/") or data.startswith("data:video/"):
+                return f"[BASE64_MEDIA len={len(data)}]"
+            if len(data) > 1000 and all(
+                c in "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=\n\r"
+                for c in data[:500]
             ):
-                return f"[BASE64_IMAGE len={len(data)}]"
+                return f"[BASE64_MEDIA len={len(data)}]"
             if len(data) > max_str:
                 return data[:max_str] + f" [TRUNCATED {len(data) - max_str} chars]"
             return data
@@ -189,6 +191,8 @@ class TraceLogService:
         return items, total
 
     def _to_response(self, doc: Dict[str, Any]) -> Dict[str, Any]:
+        steps = self._truncate(doc.get("steps") or [])
+        channel_attempts = self._truncate(doc.get("channel_attempts") or [])
         return {
             "log_id": doc.get("log_id") or doc.get("trace_id"),
             "trace_id": doc.get("trace_id"),
@@ -201,9 +205,9 @@ class TraceLogService:
             "channel_code": doc.get("channel_code"),
             "duration_ms": doc.get("duration_ms"),
             "error_message": doc.get("error_message"),
-            "steps": doc.get("steps") or [],
-            "channel_attempts": doc.get("channel_attempts") or [],
-            "step_count": len(doc.get("steps") or []),
+            "steps": steps,
+            "channel_attempts": channel_attempts,
+            "step_count": len(steps if isinstance(steps, list) else []),
             "created_at": doc.get("created_at"),
             "updated_at": doc.get("updated_at"),
         }

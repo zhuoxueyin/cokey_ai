@@ -138,7 +138,7 @@ export default function NodeResultView({
     const text = result.text || ''
     return (
       <div className="canvas-result canvas-result--text">
-        <div className="canvas-result__text">{text || '（空文本）'}</div>
+        <div className="canvas-result__text canvas-run-selectable">{text || '（空文本）'}</div>
         {text && (
           <div className="canvas-result__actions">
             <Tooltip title="复制">

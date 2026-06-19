@@ -4,12 +4,14 @@ import { VideoCameraOutlined } from '@ant-design/icons'
 import BaseNodeShell from '../BaseNodeShell'
 import NodeResultView from '../NodeResultView'
 import NodeReferenceStrip from '../NodeReferenceStrip'
+import { resolveNodeDisplayStatus } from '@/utils/canvasNodeStatus'
 import type { CanvasNodeData } from '@/types/canvas'
 
 function VideoNode({ data, selected }: NodeProps) {
   const d = data as unknown as CanvasNodeData
   const node = d.canvasNode
   const hasResult = !!node.result?.videos?.length
+  const displayStatus = resolveNodeDisplayStatus(node, d.activeRunNodeId)
 
   return (
     <BaseNodeShell
@@ -17,7 +19,7 @@ function VideoNode({ data, selected }: NodeProps) {
       icon={<VideoCameraOutlined />}
       selected={selected}
       stale={node.input_stale}
-      status={node.status}
+      status={displayStatus}
       minWidth={240}
       minHeight={200}
       onResizeEnd={d.onResizeEnd}
@@ -37,7 +39,7 @@ function VideoNode({ data, selected }: NodeProps) {
         ))}
       <NodeResultView
         result={node.result}
-        status={node.status}
+        status={displayStatus}
         errorMessage={node.error_message}
         fitContain={hasResult}
       />

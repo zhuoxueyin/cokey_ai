@@ -9,6 +9,7 @@ import {
   PlusOutlined,
   DeleteOutlined,
   UserOutlined,
+  HistoryOutlined,
 } from '@ant-design/icons'
 import { createCanvasProject, deleteCanvasProject, updateCanvasProject } from '@/api/canvas'
 import { openCanvasProject } from '@/utils/canvasNav'
@@ -18,6 +19,7 @@ interface CanvasEditorHeaderProps {
   title: string
   onTitleChange: (title: string) => void
   userId?: string | null
+  onOpenRunHistory?: () => void
 }
 
 function getUserInfo() {
@@ -29,7 +31,7 @@ function getUserInfo() {
   }
 }
 
-export default function CanvasEditorHeader({ projectId, title, onTitleChange, userId }: CanvasEditorHeaderProps) {
+export default function CanvasEditorHeader({ projectId, title, onTitleChange, userId, onOpenRunHistory }: CanvasEditorHeaderProps) {
   const navigate = useNavigate()
   const [editingTitle, setEditingTitle] = useState(title)
   const userInfo = getUserInfo()
@@ -97,6 +99,12 @@ export default function CanvasEditorHeader({ projectId, title, onTitleChange, us
         />
       </div>
       <div className="canvas-header__right">
+        {onOpenRunHistory && (
+          <button type="button" className="canvas-header__history-btn" onClick={onOpenRunHistory}>
+            <HistoryOutlined />
+            <span>运行记录</span>
+          </button>
+        )}
         <Avatar
           size={32}
           src={userInfo?.avatar_url || undefined}

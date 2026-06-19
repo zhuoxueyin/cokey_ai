@@ -97,9 +97,11 @@ export default function NodeFloatingPanel({
     <div
       className="canvas-node-floating-panel"
       style={{ left: layout.x, top: layout.y, width: layout.w }}
-      onClick={(e) => e.stopPropagation()}
-      onDoubleClick={(e) => e.stopPropagation()}
-    >
+        onMouseDown={(e) => e.stopPropagation()}
+        onPointerDown={(e) => e.stopPropagation()}
+        onClick={(e) => e.stopPropagation()}
+        onDoubleClick={(e) => e.stopPropagation()}
+      >
       {children}
     </div>
   )

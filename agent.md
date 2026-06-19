@@ -1,6 +1,6 @@
 # AIGC 创作平台 - 技术方案与运维手册
 
-> 版本: **v1.2.2** | 最后更新: **2026-06-18**（画布 MVP+、下载代理）
+> 版本: **v1.2.3** | 最后更新: **2026-06-18**（画布标记/运行记录/文本链路对齐）
 > 通用 AIGC 创作平台 - 支持多模型、多渠道的 AI 内容生成系统
 > 关联文档: `README.md`（快速开始）、`PROTOCOL_SPEC.md`（渠道协议规范）、`docs/ONBOARDING_SOP.md`（接入 SOP）、`docs/iterations/`（每日迭代记录）
 > 文档版本（v1.2.x）与 `main.py` 中 FastAPI `version: 1.0.0` 为两套编号，互不替代
@@ -26,7 +26,7 @@
 | **任务管理** | 任务监控、`task_id`/`trace_id` 检索、渠道入参/出参 | `TaskAdmin` + `task_service` |
 | **链路日志** | 全链路步骤、`channel_http_request`、渠道尝试记录 | `TraceLogAdmin` + `trace_log_service` |
 | **用户认证** | JWT 注册/登录、路由守卫 | `auth.py` + `Login.tsx` |
-| **无限画布** | 创造项目、节点连线、生文/图/视频、上游 stale、多图主图、复制粘贴 | `CanvasEditor` + `user_canvas.py` + `canvas_service.py` |
+| **无限画布** | 项目/节点/连线、生文/图/视频、资源标记、运行记录、连线流动动画 | `CanvasEditor` + `canvas_service.py` + `ResourceImageMarkEditor` |
 
 ### 0.2 核心架构（当前）
 
@@ -111,8 +111,12 @@
 | 素材上传 | 本地上传 Tab 确定不再误报「Base64/CDN」 |
 | 信息流下载 | `downloadRemoteFile`：CDN 直连 fetch→Blob；外部视频走后端 `/api/download/proxy` |
 | 接入工单 | `page_size` 上限 100；`ComposerArea` 视频配置摘要读 `currentState` |
-| 无限画布 MVP+ | 多图主图 `output_image_index`、节点 Ctrl+C/V 复制粘贴、`duplicate` API、项目 `user_id` 认领 |
-| 画布 CDN 修复 | 文本节点不再合并上游 `images`；参考图 CDN 校验仅 image/video 节点 |
+| 无限画布 MVP+ | 多图主图、Ctrl+C/V 复制粘贴、`duplicate` API、项目 `user_id` 认领 |
+| 画布 CDN 修复 | 文本节点 run 不再静默合并上游文本；文本任务传 `params.images`；text 类也校验参考图 |
+| 画布资源标记 | 上传图工具箱（标记/擦除/裁剪占位/信息/下载）；`ResourceImageMarkEditor` + 两层导出 |
+| 画布运行记录 | `CanvasRunHistoryDrawer`；列表/详情；文本可选中复制 |
+| 管理端 TaskAdmin | 筛选区与表格布局修复；时间 UTC→本地 `formatServerDateTime` |
+| API 时间序列化 | `datetime_utils` 统一 ISO8601 带 `Z`；`success/paginated` 递归序列化 |
 
 ### 0.8 仍待改进（技术债摘要）
 
@@ -124,12 +128,25 @@
 | P1 | `b64_json` 转 CDN 失败时仍可能落 data URL |
 | P2 | Redis 未接入队列/限流；MongoDB 大文档截断策略需持续观察 |
 | P2 | 画布节点复制依赖后端 `duplicate` 路由已加载（改代码后须 `launcher restart`） |
+| P2 | 资源图「裁剪」工具箱项尚未实现（仅占位） |
+| P2 | 短剧 Agent 方案已评审，未进研发（见产品讨论） |
 
 ### 0.9 无限画布（MVP+，2026-06-18）
 
 **入口**: 主页「新建创造项目」→ `/canvas` 列表 → `/canvas/:projectId` 编辑器（`@xyflow/react`）
 
 **节点类型**: `resource`（上传图/视频）| `text` | `image` | `video` — 左右 Handle 连线，上游结果注入下游 params
+
+**交互**:
+- 默认左键拖画布；**Space + 左键**框选；Ctrl/⌘ 多选；分组工具条
+- 连线 **虚线流动动画**（`.canvas-edge` + `canvas-edge-flow`）
+- 资源图选中：**悬浮胶囊工具箱**（标记 / 擦除 / 裁剪占位 / 信息 / 下载）
+- 标记模式：`ResourceImageMarkEditor`（画笔/椭圆/方/擦除/文字）；保存合并 PNG 上传 CDN；`mark_layers` + `mark_source_url` 可再编辑
+- **运行记录**：Header「运行记录」→ `CanvasRunHistoryDrawer`（`/api/canvas/projects/{id}/runs`）
+
+**文本节点 run 与创作流对齐**（`canvas_service._build_run_params`）:
+- 不再静默拼接上游文本（须用 `@` 引用）；`@` 图片走 `params.images` 而非 `[参考图:xxx]` 占位
+- 与 `POST /api/tasks/generate` 共用 `ModelGateway.execute`
 
 **核心 API**（`backend/app/routers/user_canvas.py`，前缀 `/api/canvas`）:
 
@@ -141,6 +158,8 @@
 | PUT/DELETE | `/projects/{id}/nodes/{node_id}` | 更新/删除 |
 | POST | `/projects/{id}/nodes/{node_id}/duplicate` | 复制节点（body 可选 `position`） |
 | POST | `/projects/{id}/nodes/{node_id}/run` | 运行节点（复用 ModelGateway） |
+| GET | `/projects/{id}/runs` | 运行记录列表 |
+| GET | `/projects/{id}/runs/{task_id}` | 运行记录详情 |
 | POST/DELETE | `/projects/{id}/edges` | 连线 CRUD |
 | PUT | `/projects/{id}/sync` | 批量同步 viewport/节点位置 |
 
@@ -150,7 +169,9 @@
 
 **MongoDB 集合**: `canvas_projects` | `canvas_nodes` | `canvas_edges`
 
-**关键前端文件**: `CanvasEditor.tsx`、`NodeResultView.tsx`、`canvasPrimaryImage.ts`、`canvasUpstream.ts`、`api/canvas.ts`
+**关键前端文件**: `CanvasEditor.tsx`、`ResourceImageToolbox.tsx`、`ResourceImageMarkEditor.tsx`、`CanvasRunHistoryDrawer.tsx`、`utils/imageMarkEngine.ts`、`NodeResultView.tsx`、`canvasPrimaryImage.ts`、`canvasUpstream.ts`、`api/canvas.ts`
+
+**关键后端文件**: `canvas_service.py`（`run_node`、`_build_run_params`、`image_url_from_source_node`）、`core/canvas_prompt.py`
 
 ---
 
@@ -2063,6 +2084,18 @@ async def _http_post(self, url: str, body: Dict[str, Any], api_key: str) -> Dict
 | 文本→文本 CDN 报错 | `canvas_service` 文本节点不再把上游 images 并入 params |
 | 项目列表缺失 | `list_projects` 含无 `user_id` 项目；打开画布时 claim |
 | 画布闪烁 | 移除全量 `setNodes` 同步 effect，仅上游变化时 patch `data.upstream` |
+
+### 12.4.3 画布体验与链路（v1.2.3，2026-06-18 晚间）
+
+| 项 | 说明 |
+|----|------|
+| 文本 run 对齐创作流 | `_build_run_params`：不静默拼上游文本；文本节点传 `params.images`；`@` 图引用真实 URL |
+| 资源图标记 | `imageMarkEngine.pointerToNormOnCanvas` 修笔迹错位；导出双层合成修擦除黑块 |
+| 运行记录 | 文本可选中；Drawer/Modal 内不劫持 Ctrl+C |
+| TaskAdmin | 去 fixed 列/Card extra 挤压；`.admin-page` 样式 |
+| 文本节点 UI | 去掉与「复制节点」重复的头部复制按钮 |
+| 时间展示 | 后端 `datetime_utils` + 前端 `formatServerDateTime` |
+| 连线 | `.canvas-edge` 虚线流动动画 |
 
 ### 12.5 排查快速路径
 

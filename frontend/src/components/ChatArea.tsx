@@ -27,6 +27,7 @@ import { useGenerationStore } from '@/store/generation'
 import { generate } from '@/api'
 import type { TaskItem } from '@/types'
 import { downloadRemoteFile } from '@/utils/download'
+import { formatServerDateTime, parseServerDateTime } from '@/utils/formatDateTime'
 
 export default function ChatArea({ tasks: tasksProp }: { tasks?: TaskItem[] }) {
   const { currentModel, activeCategory, sessionId, setSessionId } = useGenerationStore()
@@ -35,7 +36,7 @@ export default function ChatArea({ tasks: tasksProp }: { tasks?: TaskItem[] }) {
   // 🔧 前端按 created_at 升序排序（最早在前，最新在底部）
   // 不依赖后端或 store 的顺序，确保渲染正确
   const tasksToRender = [...rawTasks].sort((a, b) => 
-    new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+    (parseServerDateTime(a.created_at)?.getTime() ?? 0) - (parseServerDateTime(b.created_at)?.getTime() ?? 0),
   )
   
   const bottomRef = useRef<HTMLDivElement>(null)
@@ -218,7 +219,7 @@ export default function ChatArea({ tasks: tasksProp }: { tasks?: TaskItem[] }) {
             )}
             {task.params?.images && task.params.images.length > 0 && renderParamImages(task.params.images)}
             <div style={{ marginTop: 4, fontSize: 10, color: '#aaa', textAlign: 'right' }}>
-              {new Date(task.created_at).toLocaleString('zh-CN')}
+              {formatServerDateTime(task.created_at)}
             </div>
           </Card>
         </div>

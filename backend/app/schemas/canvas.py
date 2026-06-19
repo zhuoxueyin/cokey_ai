@@ -5,7 +5,7 @@ from typing import Any, Dict, List, Literal, Optional
 from pydantic import BaseModel, Field
 
 
-CanvasNodeType = Literal["resource", "text", "image", "video"]
+CanvasNodeType = Literal["resource", "text", "image", "video", "group"]
 CanvasNodeStatus = Literal["idle", "running", "success", "failed"]
 
 
@@ -51,6 +51,7 @@ class CanvasNodeCreate(BaseModel):
     title: Optional[str] = None
     position: CanvasNodePosition = Field(default_factory=CanvasNodePosition)
     config: CanvasNodeConfig = Field(default_factory=CanvasNodeConfig)
+    parent_id: Optional[str] = None
 
 
 class CanvasNodeUpdate(BaseModel):
@@ -60,6 +61,7 @@ class CanvasNodeUpdate(BaseModel):
     status: Optional[CanvasNodeStatus] = None
     input_stale: Optional[bool] = None
     result: Optional[Dict[str, Any]] = None
+    parent_id: Optional[str] = None
 
 
 class CanvasEdgeCreate(BaseModel):
