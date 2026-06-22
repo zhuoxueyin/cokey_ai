@@ -19,10 +19,11 @@ import {
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import { Spin, message } from 'antd'
-import { PlusOutlined } from '@ant-design/icons'
+import { PlusOutlined, AimOutlined } from '@ant-design/icons'
 import {
   getCanvasProject,
   updateCanvasProject,
+  createCanvasProject,
   createCanvasNode,
   createCanvasEdge,
   deleteCanvasEdge,
@@ -34,8 +35,16 @@ import {
   updateCanvasNode,
   uploadCanvasResource,
 } from '@/api/canvas'
-import type { CanvasNode, CanvasNodeConfig, CanvasNodeType, CanvasProject } from '@/types/canvas'
+import { getModels } from '@/api'
+import type {
+  CanvasNode,
+  CanvasNodeConfig,
+  CanvasNodeData,
+  CanvasNodeType,
+  CanvasProject,
+} from '@/types/canvas'
 import type { AssetItem } from '@/types'
+import type { ModelItem } from '@/types'
 import { useGenerationStore } from '@/store/generation'
 import { pickCdnUrl } from '@/utils/cdnUrl'
 import { collectUpstreamPreview } from '@/utils/canvasUpstream'
@@ -48,23 +57,34 @@ import {
   withPrimaryImageConfig,
 } from '@/utils/canvasPrimaryImage'
 import {
+  listRunningCanvasNodeIds,
+  shouldSyncCanvasNodeFromServer,
+} from '@/utils/canvasNodeStatus'
+import { mergeCanvasNodeConfig } from '@/utils/canvasNodeConfigPatch'
+import {
   IMAGE_NODE_DEFAULT,
   computeImageNodeSize,
   loadImageDimensions,
   pickOutputImageUrl,
 } from '@/utils/canvasNodeSize'
-import ResourceNode from '@/components/canvas/nodes/ResourceNode'
-import TextNode from '@/components/canvas/nodes/TextNode'
-import ImageNode from '@/components/canvas/nodes/ImageNode'
-import VideoNode from '@/components/canvas/nodes/VideoNode'
+import { canvasEdgeTypes, canvasNodeTypes } from '@/components/canvas/canvasFlowRegistry'
 import CanvasEditorHeader from '@/components/canvas/CanvasEditorHeader'
 import CanvasRunHistoryDrawer from '@/components/canvas/CanvasRunHistoryDrawer'
 import AddNodePickerModal from '@/components/canvas/AddNodePickerModal'
 import NodeInputPanel from '@/components/canvas/NodeInputPanel'
 import NodeFloatingPanel from '@/components/canvas/NodeFloatingPanel'
+import TitleNodeEditPanel from '@/components/canvas/TitleNodeEditPanel'
 import AssetPicker from '@/components/AssetPicker'
-import GroupNode from '@/components/canvas/nodes/GroupNode'
 import CanvasSelectionToolbar from '@/components/canvas/CanvasSelectionToolbar'
+import CanvasAgentPanelPortal from '@/components/drama/CanvasAgentPanelPortal'
+import { canvasAgentBridge } from '@/utils/canvasAgentBridge'
+import {
+  buildCanvasNodeConfigFromAgentTask,
+  characterImageTaskButtonLabel,
+  resolveAgentTaskNodeType,
+  type CharacterImageTask,
+} from '@/utils/characterImageTasks'
+import { pickDefaultModelCode, sortModelsByAdminOrder } from '@/utils/modelOrder'
 import {
   canUngroupSelection,
   computeGroupBounds,
@@ -72,17 +92,15 @@ import {
   nextGroupTitle,
   sortCanvasNodesForFlow,
 } from '@/utils/canvasGroup'
-
-const nodeTypes = {
-  resource: ResourceNode,
-  text: TextNode,
-  image: ImageNode,
-  video: VideoNode,
-  group: GroupNode,
-}
+import { buildTitleRenderKey } from '@/utils/titleNodeStyles'
+import {
+  imageDuplicateNeedsServerRepair,
+  sanitizeDuplicatedImageNode,
+} from '@/utils/canvasDuplicateNode'
 
 const DEFAULT_NODE_SIZE: Record<string, { width: number; height: number }> = {
   text: { width: 260, height: 200 },
+  title: { width: 360, height: 96 },
   image: { ...IMAGE_NODE_DEFAULT },
   video: { width: 320, height: 240 },
   resource: { width: 280, height: 180 },
@@ -96,8 +114,11 @@ function toFlowEdge(edge: { edge_id: string; source_node_id: string; target_node
     target: edge.target_node_id,
     sourceHandle: 'output',
     targetHandle: 'input',
-    type: 'default',
+    type: 'canvas',
     className: 'canvas-edge',
+    selectable: true,
+    focusable: true,
+    deletable: true,
   }
 }
 
@@ -105,29 +126,36 @@ function canShowEditPanel(node: CanvasNode): boolean {
   return (
     node.node_type !== 'resource' &&
     node.node_type !== 'group' &&
+    node.node_type !== 'title' &&
     !(node.node_type === 'text' && (node.config.text_mode || 'generate') === 'manual')
   )
 }
 
 function CanvasEditorInner() {
-  const { projectId } = useParams<{ projectId: string }>()
+  const { projectId: routeProjectId } = useParams<{ projectId: string }>()
+  const isDraftRoute = routeProjectId === 'new'
   const navigate = useNavigate()
   const { userId } = useGenerationStore()
   const { getViewport, screenToFlowPosition, fitView, setViewport: rfSetViewport } = useReactFlow()
   const didInitialFitRef = useRef(false)
   const viewportInitializedRef = useRef(false)
+  const activeProjectIdRef = useRef<string | null>(isDraftRoute ? null : routeProjectId ?? null)
+  const skipLoadOnceRef = useRef(false)
+  const persistPromiseRef = useRef<Promise<string> | null>(null)
   const [viewport, setViewport] = useState({ x: 0, y: 0, zoom: 0.8 })
 
   const [project, setProject] = useState<CanvasProject | null>(null)
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(!isDraftRoute)
   const [title, setTitle] = useState('')
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
+  const selectedNodeIdRef = useRef<string | null>(null)
   const [panelVisible, setPanelVisible] = useState(false)
   const [runningNodeId, setRunningNodeId] = useState<string | null>(null)
   const [addModalOpen, setAddModalOpen] = useState(false)
   const [assetPickerOpen, setAssetPickerOpen] = useState(false)
   const [runHistoryOpen, setRunHistoryOpen] = useState(false)
   const [runHistoryRefresh, setRunHistoryRefresh] = useState(0)
+  const [draggingNodeId, setDraggingNodeId] = useState<string | null>(null)
   const [spawnFlowPos, setSpawnFlowPos] = useState<{ x: number; y: number } | null>(null)
   const [pendingConnect, setPendingConnect] = useState<{ sourceNodeId: string; flowPos: { x: number; y: number } } | null>(null)
   const connectDragRef = useRef<{ sourceNodeId: string } | null>(null)
@@ -135,6 +163,8 @@ function CanvasEditorInner() {
   const isSelectingRef = useRef(false)
   /** 框选刚结束：避免 mouseup 触发 pane click 清空选区 */
   const justFinishedSelectionRef = useRef(false)
+  /** 框选是否真的进入了拖拽阶段，用来避免 onSelectionEnd 把有效选区误清空 */
+  const selectionStartedRef = useRef(false)
   /** 框选过程中的最新选区，在 onSelectionEnd 一次性应用 */
   const pendingSelectionRef = useRef<Node[]>([])
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([])
@@ -146,12 +176,26 @@ function CanvasEditorInner() {
   const syncTimerRef = useRef<number | null>(null)
   const resizeSaveTimerRef = useRef<number | null>(null)
   const textSaveTimersRef = useRef<Map<string, number>>(new Map())
+  const titleSaveTimersRef = useRef<Map<string, number>>(new Map())
+  const titlePendingConfigRef = useRef<Map<string, CanvasNodeConfig>>(new Map())
+  const persistNodeTitleRef = useRef<(nodeId: string, title: string) => void>(() => {})
+  const flushTitleNodeSaveRef = useRef<(nodeId: string) => Promise<void>>(async () => {})
+  const updateLocalNodeRef = useRef<(nodeId: string, patch: Partial<CanvasNode>) => void>(() => {})
   const workspaceRef = useRef<HTMLDivElement>(null)
 
-  const selectedCanvasNode = selectedNodeId ? canvasNodesRef.current.get(selectedNodeId) || null : null
+  const selectedCanvasNode = useMemo(() => {
+    if (!selectedNodeId) return null
+    const flow = nodes.find((n) => n.id === selectedNodeId)
+    const fromFlow = (flow?.data as CanvasNodeData | undefined)?.canvasNode
+    return fromFlow ?? canvasNodesRef.current.get(selectedNodeId) ?? null
+  }, [selectedNodeId, nodes])
+
+  useEffect(() => {
+    selectedNodeIdRef.current = selectedNodeId
+  }, [selectedNodeId])
 
   const upstreamPreview = useMemo(() => {
-    if (!selectedNodeId) return { texts: [], images: [], refs: [] }
+    if (!selectedNodeId) return { texts: [], images: [], videos: [], refs: [] }
     return collectUpstreamPreview(selectedNodeId, edges, canvasNodesRef.current)
   }, [selectedNodeId, edges, nodes])
 
@@ -165,6 +209,40 @@ function CanvasEditorInner() {
     pasteCount: number
   } | null>(null)
   const lastPointerFlowPosRef = useRef<{ x: number; y: number } | null>(null)
+  const agentTextSpawnRef = useRef(0)
+  const agentImageSpawnRef = useRef(0)
+  const imageModelsRef = useRef<ModelItem[] | null>(null)
+  const videoModelsRef = useRef<ModelItem[] | null>(null)
+
+  useEffect(() => {
+    if (routeProjectId && routeProjectId !== 'new') {
+      activeProjectIdRef.current = routeProjectId
+    }
+  }, [routeProjectId])
+
+  const ensurePersisted = useCallback(async (): Promise<string> => {
+    if (activeProjectIdRef.current) return activeProjectIdRef.current
+    if (persistPromiseRef.current) return persistPromiseRef.current
+
+    persistPromiseRef.current = (async () => {
+      const res = await createCanvasProject({
+        title: title.trim() || `画布 ${new Date().toLocaleDateString('zh-CN')}`,
+        user_id: userId || undefined,
+      })
+      if (res.code !== 'success' || !res.data?.project_id) {
+        persistPromiseRef.current = null
+        throw new Error(res.message || '保存画布失败')
+      }
+      const id = res.data.project_id
+      activeProjectIdRef.current = id
+      setProject(res.data)
+      skipLoadOnceRef.current = true
+      navigate(`/canvas/${id}`, { replace: true })
+      return id
+    })()
+
+    return persistPromiseRef.current
+  }, [title, userId, navigate])
 
   const persistNodeSize = useCallback(
     (nodeId: string, width: number, height: number, options?: { userResized?: boolean }) => {
@@ -197,15 +275,16 @@ function CanvasEditorInner() {
       )
       if (resizeSaveTimerRef.current) window.clearTimeout(resizeSaveTimerRef.current)
       resizeSaveTimerRef.current = window.setTimeout(async () => {
-        if (!projectId) return
+        const pid = activeProjectIdRef.current
+        if (!pid) return
         try {
-          await updateCanvasNode(projectId, nodeId, { config })
+          await updateCanvasNode(pid, nodeId, { config })
         } catch {
           message.error('节点尺寸保存失败')
         }
       }, 300)
     },
-    [projectId, setNodes],
+    [setNodes],
   )
 
   const persistNodeText = useCallback(
@@ -237,16 +316,131 @@ function CanvasEditorInner() {
       textSaveTimersRef.current.set(
         nodeId,
         window.setTimeout(async () => {
-          if (!projectId) return
+          const pid = activeProjectIdRef.current
+          if (!pid) return
           try {
-            await updateCanvasNode(projectId, nodeId, { config, result })
+            await updateCanvasNode(pid, nodeId, { config, result })
           } catch {
             message.error('文本保存失败')
           }
         }, 400),
       )
     },
-    [projectId, setNodes],
+    [setNodes],
+  )
+
+  const persistNodeTitle = useCallback(
+    (nodeId: string, title: string) => {
+      const existing = canvasNodesRef.current.get(nodeId)
+      if (!existing) return
+      const trimmed = title.trim()
+      if (!trimmed || trimmed === existing.title) return
+      const updated = { ...existing, title: trimmed }
+      canvasNodesRef.current.set(nodeId, updated)
+      setNodes((nds) =>
+        nds.map((n) => {
+          if (n.id !== nodeId) return n
+          if (updated.node_type === 'group') {
+            return {
+              ...n,
+              data: {
+                ...n.data,
+                label: trimmed,
+                onTitleChange: (next: string) => persistNodeTitleRef.current(nodeId, next),
+              },
+            }
+          }
+          return {
+            ...n,
+            data: {
+              ...n.data,
+              canvasNode: updated,
+              ...bindNodeActionsRef.current(nodeId),
+            },
+          }
+        }),
+      )
+      const prev = titleSaveTimersRef.current.get(nodeId)
+      if (prev) window.clearTimeout(prev)
+      titleSaveTimersRef.current.set(
+        nodeId,
+        window.setTimeout(async () => {
+          const pid = activeProjectIdRef.current
+          if (!pid) return
+          try {
+            await updateCanvasNode(pid, nodeId, { title: trimmed })
+          } catch {
+            message.error('节点标题保存失败')
+          }
+        }, 400),
+      )
+    },
+    [setNodes],
+  )
+  persistNodeTitleRef.current = persistNodeTitle
+
+  const flushTitleNodeSave = useCallback(async (nodeId: string) => {
+    const pendingTimer = titleSaveTimersRef.current.get(nodeId)
+    if (pendingTimer) {
+      window.clearTimeout(pendingTimer)
+      titleSaveTimersRef.current.delete(nodeId)
+    }
+    const pendingConfig = titlePendingConfigRef.current.get(nodeId)
+    const existing = canvasNodesRef.current.get(nodeId)
+    if (!existing && !pendingConfig) return
+
+    let pid = activeProjectIdRef.current
+    if (!pid) {
+      try {
+        pid = await ensurePersisted()
+      } catch {
+        return
+      }
+    }
+
+    const config = pendingConfig ?? existing?.config
+    if (!config) return
+    titlePendingConfigRef.current.delete(nodeId)
+
+    try {
+      await updateCanvasNode(pid, nodeId, { config })
+      const latest = canvasNodesRef.current.get(nodeId)
+      if (latest) {
+        updateLocalNodeRef.current(nodeId, { config: latest.config })
+      }
+    } catch {
+      message.error('标题节点保存失败')
+    }
+  }, [ensurePersisted])
+  flushTitleNodeSaveRef.current = flushTitleNodeSave
+
+  const persistTitleContent = useCallback(
+    (nodeId: string, content: string, options?: { immediate?: boolean }) => {
+      const existing = canvasNodesRef.current.get(nodeId)
+      if (!existing) return
+      const config = { ...existing.config, content }
+      const updated = { ...existing, config }
+      canvasNodesRef.current.set(nodeId, updated)
+      titlePendingConfigRef.current.set(nodeId, config)
+      updateLocalNodeRef.current(nodeId, { config })
+
+      const prev = titleSaveTimersRef.current.get(nodeId)
+      if (prev) window.clearTimeout(prev)
+
+      if (options?.immediate) {
+        void flushTitleNodeSaveRef.current(nodeId)
+        return
+      }
+
+      titleSaveTimersRef.current.set(
+        nodeId,
+        window.setTimeout(() => {
+          titleSaveTimersRef.current.delete(nodeId)
+          void flushTitleNodeSaveRef.current(nodeId)
+        }, 400),
+      )
+    },
+    [],
   )
 
   const bindNodeActions = useCallback(
@@ -260,6 +454,8 @@ function CanvasEditorInner() {
         onAutoSize: (w: number, h: number) => persistNodeSize(nodeId, w, h, { userResized: false }),
         onResizeStart: () => setPanelVisible(false),
         onEditText: (text: string) => persistNodeText(nodeId, text),
+        onTitleChange: (title: string) => persistNodeTitle(nodeId, title),
+        onEditTitleContent: (content: string) => persistTitleContent(nodeId, content),
         onOpenPanel: supportsPanel
           ? () => {
               setSelectedNodeId(nodeId)
@@ -268,13 +464,15 @@ function CanvasEditorInner() {
           : undefined,
         onDuplicate: () => {
           copyNodeRef.current(nodeId)
+          void pasteNodeRef.current()
         },
         onUpdateConfig: async (patch: Partial<CanvasNodeConfig>) => {
-          if (!projectId) return
+          const pid = activeProjectIdRef.current
+          if (!pid) return
           const current = canvasNodesRef.current.get(nodeId)
-          const merged = { ...(current?.config || {}), ...patch }
+          const merged = mergeCanvasNodeConfig(current?.config, patch)
           updateLocalNode(nodeId, { config: merged })
-          await updateCanvasNode(projectId, nodeId, { config: merged })
+          await updateCanvasNode(pid, nodeId, { config: merged })
         },
         primaryImageIndex,
         onSelectPrimaryImage: (index: number) => {
@@ -286,7 +484,7 @@ function CanvasEditorInner() {
         activeRunNodeId: runningNodeId,
       }
     },
-    [persistNodeSize, persistNodeText, primaryImageByNode, runningNodeId],
+    [persistNodeSize, persistNodeText, persistNodeTitle, persistTitleContent, primaryImageByNode, runningNodeId],
   )
 
   bindNodeActionsRef.current = bindNodeActions
@@ -301,7 +499,10 @@ function CanvasEditorInner() {
           type: 'group',
           position: node.position || { x: 0, y: 0 },
           style: { width, height },
-          data: { label: node.title },
+          data: {
+            label: node.title,
+            onTitleChange: (title: string) => persistNodeTitleRef.current(node.node_id, title),
+          },
           draggable: true,
           selectable: true,
           selected: node.node_id === selId,
@@ -314,6 +515,8 @@ function CanvasEditorInner() {
       const canvasNode = withPrimaryImageConfig(node, primaryImageByNode)
       const primaryImageIndex = resolvePrimaryImageIndex(node.node_id, canvasNode, primaryImageByNode)
       const actions = bindNodeActionsRef.current(node.node_id)
+      const titleRenderKey =
+        canvasNode.node_type === 'title' ? buildTitleRenderKey(canvasNode.config) : undefined
       return {
         id: node.node_id,
         type: node.node_type,
@@ -327,6 +530,7 @@ function CanvasEditorInner() {
           canvasNode,
           primaryImageIndex,
           selected: node.node_id === selId,
+          ...(titleRenderKey ? { titleRenderKey } : {}),
           ...actions,
         },
         selected: node.node_id === selId,
@@ -334,6 +538,9 @@ function CanvasEditorInner() {
     },
     [primaryImageByNode],
   )
+
+  const buildFlowNodeRef = useRef(buildFlowNode)
+  buildFlowNodeRef.current = buildFlowNode
 
   const rebuildFlowNodes = useCallback(
     (selId?: string | null) => {
@@ -356,26 +563,41 @@ function CanvasEditorInner() {
         }
         return merged
       })
-      const sel = keepSelection ?? selectedNodeId
+      const sel = keepSelection ?? selectedNodeIdRef.current
       const sorted = sortCanvasNodesForFlow(proj.nodes || [])
-      setNodes(sorted.map((n) => buildFlowNode(n, sel)))
+      setNodes(sorted.map((n) => buildFlowNodeRef.current(n, sel)))
       setEdges((proj.edges || []).map(toFlowEdge))
       setProject(proj)
       setTitle(proj.title)
     },
-    [selectedNodeId, setNodes, setEdges],
+    [setNodes, setEdges],
   )
 
   const loadProject = useCallback(async () => {
-    if (!projectId) return
+    if (!routeProjectId) return
+    if (routeProjectId === 'new') {
+      setLoading(false)
+      setProject(null)
+      setTitle(`画布 ${new Date().toLocaleDateString('zh-CN')}`)
+      setNodes([])
+      setEdges([])
+      canvasNodesRef.current.clear()
+      setPrimaryImageByNode({})
+      return
+    }
+    if (skipLoadOnceRef.current) {
+      skipLoadOnceRef.current = false
+      setLoading(false)
+      return
+    }
     setLoading(true)
     try {
-      const res = await getCanvasProject(projectId)
+      const res = await getCanvasProject(routeProjectId)
       if (res.code === 'success' && res.data) {
         let proj = res.data
         if (userId && userId !== 'default_user' && (!proj.user_id || proj.user_id === 'default_user')) {
           try {
-            const claim = await updateCanvasProject(projectId, { user_id: userId })
+            const claim = await updateCanvasProject(routeProjectId, { user_id: userId })
             if (claim.code === 'success' && claim.data) {
               proj = { ...proj, user_id: claim.data.user_id }
             }
@@ -386,34 +608,40 @@ function CanvasEditorInner() {
         refreshFromProject(proj)
       } else {
         message.error(res.message || '加载失败')
-        navigate('/canvas')
+        navigate('/my-space')
       }
     } catch {
       message.error('加载项目失败')
-      navigate('/canvas')
+      navigate('/my-space')
     } finally {
       setLoading(false)
     }
-  }, [projectId, navigate, refreshFromProject, userId])
+  }, [routeProjectId, navigate, refreshFromProject, userId, setNodes, setEdges])
 
   useEffect(() => {
-    loadProject()
+    void loadProject()
     return () => {
       if (resizeSaveTimerRef.current) window.clearTimeout(resizeSaveTimerRef.current)
       textSaveTimersRef.current.forEach((timer) => window.clearTimeout(timer))
       textSaveTimersRef.current.clear()
+      titleSaveTimersRef.current.forEach((timer) => window.clearTimeout(timer))
+      titleSaveTimersRef.current.clear()
     }
-  }, [loadProject])
+    // 仅路由切换时拉取项目，避免选区/节点状态变化误触发全量 reload
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [routeProjectId])
 
+  const prevSelectedTitleRef = useRef<string | null>(null)
   useEffect(() => {
-    const preventSpaceScroll = (e: KeyboardEvent) => {
-      if (e.code !== 'Space' && e.key !== ' ') return
-      if (isTextEditingTarget(e.target)) return
-      e.preventDefault()
+    const prev = prevSelectedTitleRef.current
+    if (prev && prev !== selectedNodeId) {
+      const prevNode = canvasNodesRef.current.get(prev)
+      if (prevNode?.node_type === 'title') {
+        void flushTitleNodeSaveRef.current(prev)
+      }
     }
-    window.addEventListener('keydown', preventSpaceScroll)
-    return () => window.removeEventListener('keydown', preventSpaceScroll)
-  }, [])
+    prevSelectedTitleRef.current = selectedNodeId
+  }, [selectedNodeId])
 
   useEffect(() => {
     if (loading || didInitialFitRef.current || nodes.length === 0) return
@@ -436,7 +664,8 @@ function CanvasEditorInner() {
   }, [runningNodeId, setNodes])
 
   const scheduleSync = useCallback(() => {
-    if (!projectId) return
+    const pid = activeProjectIdRef.current
+    if (!pid) return
     if (syncTimerRef.current) window.clearTimeout(syncTimerRef.current)
     syncTimerRef.current = window.setTimeout(async () => {
       const viewport = getViewport()
@@ -446,7 +675,7 @@ function CanvasEditorInner() {
         parent_id: n.parentId ?? null,
       }))
       try {
-        await syncCanvasProject(projectId, {
+        await syncCanvasProject(pid, {
           viewport: { x: viewport.x, y: viewport.y, zoom: viewport.zoom },
           nodes: nodeUpdates,
         })
@@ -454,7 +683,7 @@ function CanvasEditorInner() {
         /* 静默 */
       }
     }, 800)
-  }, [projectId, nodes, getViewport])
+  }, [nodes, getViewport])
 
   const upstreamSyncKey = useMemo(() => {
     let key = edges.map((e) => e.id).join(',')
@@ -464,6 +693,15 @@ function CanvasEditorInner() {
     })
     return key
   }, [edges, primaryImageByNode])
+
+  const runningNodeIds = useMemo(
+    () =>
+      nodes
+        .map((n) => (n.data as CanvasNodeData | undefined)?.canvasNode)
+        .filter((cn): cn is CanvasNode => !!cn && cn.status === 'running')
+        .map((cn) => cn.node_id),
+    [nodes],
+  )
 
   /** 仅在上游引用变化时更新 data.upstream，避免全量 setNodes 导致画布闪烁 */
   useEffect(() => {
@@ -492,7 +730,7 @@ function CanvasEditorInner() {
   useEffect(() => {
     didInitialFitRef.current = false
     viewportInitializedRef.current = false
-  }, [projectId])
+  }, [routeProjectId])
 
   const nodeLayoutKey = useMemo(
     () =>
@@ -519,6 +757,8 @@ function CanvasEditorInner() {
       canvasNodesRef.current.set(nodeId, updated)
       const primaryImageIndex = resolvePrimaryImageIndex(nodeId, updated, primaryImageByNode)
       const actions = bindNodeActionsRef.current(nodeId)
+      const titleRenderKey =
+        updated.node_type === 'title' ? buildTitleRenderKey(mergedConfig) : undefined
       setNodes((nds) =>
         nds.map((n) =>
           n.id === nodeId
@@ -526,19 +766,52 @@ function CanvasEditorInner() {
                 ...n,
                 width: updated.config.width ?? n.width,
                 height: updated.config.height ?? n.height,
-                data: {
-                  canvasNode: updated,
-                  primaryImageIndex,
-                  selected: n.id === selectedNodeId,
-                  upstream: collectUpstreamPreview(nodeId, edges, canvasNodesRef.current),
-                  ...actions,
-                },
+                data:
+                  updated.node_type === 'group'
+                    ? {
+                        label: updated.title,
+                        onTitleChange: (title: string) => persistNodeTitleRef.current(nodeId, title),
+                      }
+                    : {
+                        canvasNode: updated,
+                        primaryImageIndex,
+                        selected: n.id === selectedNodeId,
+                        upstream: collectUpstreamPreview(nodeId, edges, canvasNodesRef.current),
+                        ...(titleRenderKey ? { titleRenderKey } : {}),
+                        ...actions,
+                      },
               }
             : n,
         ),
       )
     },
     [selectedNodeId, setNodes, edges, primaryImageByNode],
+  )
+  updateLocalNodeRef.current = updateLocalNode
+
+  const handleTitleNodeUpdateConfig = useCallback(
+    async (nodeId: string, patch: Partial<CanvasNodeConfig>) => {
+      const existing = canvasNodesRef.current.get(nodeId)
+      if (!existing) return
+      const merged = { ...existing.config, ...patch }
+      updateLocalNode(nodeId, { config: merged })
+      titlePendingConfigRef.current.set(nodeId, merged)
+
+      let pid: string
+      try {
+        pid = await ensurePersisted()
+      } catch (e: unknown) {
+        message.error(e instanceof Error ? e.message : '保存失败')
+        return
+      }
+      try {
+        await updateCanvasNode(pid, nodeId, { config: merged })
+        titlePendingConfigRef.current.delete(nodeId)
+      } catch {
+        message.error('标题样式保存失败')
+      }
+    },
+    [ensurePersisted, updateLocalNode],
   )
 
   const markDownstreamStale = useCallback(
@@ -560,9 +833,10 @@ function CanvasEditorInner() {
     const config = { ...existing.config, output_image_index: clamped }
     updateLocalNode(nodeId, { config })
     markDownstreamStale(nodeId)
-    if (!projectId) return
+    const pid = activeProjectIdRef.current
+    if (!pid) return
     try {
-      const res = await updateCanvasNode(projectId, nodeId, { config })
+      const res = await updateCanvasNode(pid, nodeId, { config })
       if (res.code === 'success' && res.data) {
         setPrimaryImageByNode((prev) => ({ ...prev, [nodeId]: clamped }))
         updateLocalNode(nodeId, {
@@ -575,28 +849,29 @@ function CanvasEditorInner() {
     }
   }
 
-  const mountPastedNode = (node: CanvasNode, sourceNodeId: string) => {
-    canvasNodesRef.current.set(node.node_id, node)
-    if (node.node_type === 'image') {
-      const src = canvasNodesRef.current.get(sourceNodeId)
-      const primary = resolvePrimaryImageIndex(sourceNodeId, src, primaryImageByNode)
-      setPrimaryImageByNode((prev) => ({ ...prev, [node.node_id]: primary }))
+  const mountPastedNode = (node: CanvasNode) => {
+    const cleaned = sanitizeDuplicatedImageNode(node)
+    canvasNodesRef.current.set(cleaned.node_id, cleaned)
+    if (cleaned.node_type === 'image') {
+      setPrimaryImageByNode((prev) => ({ ...prev, [cleaned.node_id]: 0 }))
     }
-    setNodes((nds) => [...nds, buildFlowNode(node, node.node_id)])
-    setSelectedNodeId(node.node_id)
-    setPanelVisible(canShowEditPanel(node))
+    setNodes((nds) => [...nds, buildFlowNode(cleaned, cleaned.node_id)])
+    setSelectedNodeId(cleaned.node_id)
+    setPanelVisible(canShowEditPanel(cleaned))
+    canvasAgentBridge.notifyCanvasMutation()
+    return cleaned
   }
 
+  const clipProjectKey = routeProjectId || 'new'
+
   copyNodeRef.current = (nodeId: string) => {
-    if (!projectId) return
-    nodeClipboardRef.current = { projectId, sourceNodeId: nodeId, pasteCount: 0 }
+    nodeClipboardRef.current = { projectId: clipProjectKey, sourceNodeId: nodeId, pasteCount: 0 }
     message.success('已复制，Ctrl+V 粘贴')
   }
 
   pasteNodeRef.current = async (flowPos?: { x: number; y: number }) => {
-    if (!projectId) return
     const clip = nodeClipboardRef.current
-    if (!clip || clip.projectId !== projectId) {
+    if (!clip || clip.projectId !== clipProjectKey) {
       message.info('请先复制节点')
       return
     }
@@ -604,6 +879,13 @@ function CanvasEditorInner() {
     if (!source) {
       nodeClipboardRef.current = null
       message.warning('原节点已不存在，请重新复制')
+      return
+    }
+    let pid: string
+    try {
+      pid = await ensurePersisted()
+    } catch (e: unknown) {
+      message.error(e instanceof Error ? e.message : '保存失败')
       return
     }
     clip.pasteCount += 1
@@ -616,9 +898,25 @@ function CanvasEditorInner() {
           y: Math.round(base.y + 40 * clip.pasteCount),
         }
     try {
-      const res = await duplicateCanvasNode(projectId, clip.sourceNodeId, { position })
+      const res = await duplicateCanvasNode(pid, clip.sourceNodeId, { position })
       if (res.code === 'success' && res.data) {
-        mountPastedNode(res.data, clip.sourceNodeId)
+        const cleaned = mountPastedNode(res.data)
+        if (imageDuplicateNeedsServerRepair(res.data)) {
+          try {
+            await updateCanvasNode(pid, cleaned.node_id, {
+              status: 'idle',
+              result: null,
+              result_version: 0,
+              task_id: null,
+              error_message: null,
+              input_stale: false,
+              upstream_snapshot: {},
+              config: cleaned.config,
+            })
+          } catch {
+            /* 本地已清空，服务端修复失败不影响继续编辑 */
+          }
+        }
         message.success('已粘贴节点')
       } else {
         message.error(res.message || '粘贴失败')
@@ -652,7 +950,13 @@ function CanvasEditorInner() {
     flowPos?: { x: number; y: number },
     options?: { text_mode?: 'manual' | 'generate' },
   ) => {
-    if (!projectId) return
+    let pid: string
+    try {
+      pid = await ensurePersisted()
+    } catch (e: unknown) {
+      message.error(e instanceof Error ? e.message : '保存失败')
+      return
+    }
     const connectSource = pendingConnect?.sourceNodeId
     const pos = getSpawnPosition(flowPos ?? pendingConnect?.flowPos ?? spawnFlowPos ?? undefined)
     const def = DEFAULT_NODE_SIZE[type] || { width: 280, height: 180 }
@@ -665,8 +969,17 @@ function CanvasEditorInner() {
             width: def.width,
             height: def.height,
           }
-        : { prompt: '', params: {}, width: def.width, height: def.height }
-    const res = await createCanvasNode(projectId, { node_type: type, position: pos, config })
+        : type === 'title'
+          ? {
+              content: '标题',
+              title_font_size: 26,
+              color: '#ffffff',
+              font_family: 'sans',
+              width: def.width,
+              height: def.height,
+            }
+          : { prompt: '', params: {}, width: def.width, height: def.height }
+    const res = await createCanvasNode(pid, { node_type: type, position: pos, config })
     if (res.code === 'success' && res.data) {
       canvasNodesRef.current.set(res.data.node_id, res.data)
       setNodes((nds) => [...nds, buildFlowNode(res.data!, res.data!.node_id)])
@@ -674,6 +987,7 @@ function CanvasEditorInner() {
       setPanelVisible(canShowEditPanel(res.data))
       setSpawnFlowPos(null)
       setPendingConnect(null)
+      canvasAgentBridge.notifyCanvasMutation()
       if (connectSource) {
         await linkNewNode(res.data.node_id, connectSource)
       }
@@ -682,10 +996,63 @@ function CanvasEditorInner() {
     }
   }
 
+  const handleSpawnAgentTextNode = useCallback(
+    async (content: string, meta: { role: 'user' | 'assistant' }) => {
+      const trimmed = content.trim()
+      if (!trimmed) {
+        message.warning('内容为空，无法添加到画布')
+        return
+      }
+      let pid: string
+      try {
+        pid = await ensurePersisted()
+      } catch (e: unknown) {
+        message.error(e instanceof Error ? e.message : '保存失败')
+        return
+      }
+      const base = getSpawnPosition()
+      const offset = agentTextSpawnRef.current
+      agentTextSpawnRef.current += 1
+      const pos = { x: base.x + offset * 32, y: base.y + offset * 24 }
+      const def = DEFAULT_NODE_SIZE.text
+      const res = await createCanvasNode(pid, {
+        node_type: 'text',
+        title: meta.role === 'assistant' ? '助手回复' : '用户消息',
+        position: pos,
+        config: {
+          text_mode: 'manual',
+          content: trimmed,
+          prompt: '',
+          params: {},
+          width: def.width,
+          height: def.height,
+        },
+      })
+      if (res.code === 'success' && res.data) {
+        canvasNodesRef.current.set(res.data.node_id, res.data)
+        setNodes((nds) => [...nds, buildFlowNode(res.data!, res.data!.node_id)])
+        setSelectedNodeId(res.data.node_id)
+        setPanelVisible(canShowEditPanel(res.data))
+        message.success('已添加到画布')
+        canvasAgentBridge.notifyCanvasMutation()
+      } else {
+        message.error(res.message || '添加失败')
+      }
+    },
+    [ensurePersisted, setNodes],
+  )
+  canvasAgentBridge.spawnTextNodeRef.current = handleSpawnAgentTextNode
+
   const handleUploadResource = async (file: File, flowPos?: { x: number; y: number }) => {
-    if (!projectId) return
+    let pid: string
+    try {
+      pid = await ensurePersisted()
+    } catch (e: unknown) {
+      message.error(e instanceof Error ? e.message : '保存失败')
+      return
+    }
     const pos = getSpawnPosition(flowPos ?? spawnFlowPos ?? undefined)
-    const res = await uploadCanvasResource(projectId, file, { x: pos.x, y: pos.y })
+    const res = await uploadCanvasResource(pid, file, { x: pos.x, y: pos.y })
     if (res.code === 'success' && res.data) {
       canvasNodesRef.current.set(res.data.node_id, res.data)
       setNodes((nds) => [...nds, buildFlowNode(res.data!, res.data!.node_id)])
@@ -693,19 +1060,27 @@ function CanvasEditorInner() {
       setPanelVisible(false)
       setSpawnFlowPos(null)
       message.success('资源已上传')
+      canvasAgentBridge.notifyCanvasMutation()
     } else {
       message.error(res.message || '上传失败')
     }
   }
 
   const handlePickAssets = async (assets: AssetItem[]) => {
-    if (!projectId || assets.length === 0) return
+    if (assets.length === 0) return
+    let pid: string
+    try {
+      pid = await ensurePersisted()
+    } catch (e: unknown) {
+      message.error(e instanceof Error ? e.message : '保存失败')
+      return
+    }
     const pos = getSpawnPosition(spawnFlowPos ?? undefined)
     for (let i = 0; i < assets.length; i++) {
       const asset = assets[i]
       const url = pickCdnUrl(asset)
       const isVideo = asset.category === 'video'
-      const res = await createCanvasNode(projectId, {
+      const res = await createCanvasNode(pid, {
         node_type: 'resource',
         position: { x: pos.x + i * 40, y: pos.y + i * 30 },
         config: {
@@ -721,12 +1096,14 @@ function CanvasEditorInner() {
     }
     setSpawnFlowPos(null)
     message.success(`已添加 ${assets.length} 个资源`)
+    canvasAgentBridge.notifyCanvasMutation()
   }
 
   const linkNewNode = useCallback(
     async (targetNodeId: string, sourceNodeId: string) => {
-      if (!projectId) return false
-      const res = await createCanvasEdge(projectId, {
+      const pid = activeProjectIdRef.current
+      if (!pid) return false
+      const res = await createCanvasEdge(pid, {
         source_node_id: sourceNodeId,
         target_node_id: targetNodeId,
       })
@@ -739,7 +1116,7 @@ function CanvasEditorInner() {
               target: targetNodeId,
               sourceHandle: 'output',
               targetHandle: 'input',
-              type: 'default',
+              type: 'canvas',
               className: 'canvas-edge',
             },
             eds,
@@ -750,7 +1127,7 @@ function CanvasEditorInner() {
       message.error(res.message || '连线失败')
       return false
     },
-    [projectId, setEdges],
+    [setEdges],
   )
 
   const selectedFlowNodes = useMemo(() => nodes.filter((n) => n.selected), [nodes])
@@ -762,10 +1139,17 @@ function CanvasEditorInner() {
   const canUngroupSelectionFlag = canUngroupSelection(selectedFlowNodes)
 
   const handleGroup = useCallback(async () => {
-    if (!projectId || groupableSelected.length < 2) return
+    if (groupableSelected.length < 2) return
+    let pid: string
+    try {
+      pid = await ensurePersisted()
+    } catch (e: unknown) {
+      message.error(e instanceof Error ? e.message : '保存失败')
+      return
+    }
     const bounds = computeGroupBounds(groupableSelected)
     const groupTitle = nextGroupTitle(Array.from(canvasNodesRef.current.values()))
-    const groupRes = await createCanvasNode(projectId, {
+    const groupRes = await createCanvasNode(pid, {
       node_type: 'group',
       title: groupTitle,
       position: { x: bounds.x, y: bounds.y },
@@ -778,8 +1162,11 @@ function CanvasEditorInner() {
     const groupId = groupRes.data.node_id
     canvasNodesRef.current.set(groupId, groupRes.data)
     for (const n of groupableSelected) {
-      const rel = { x: n.position.x - bounds.x, y: n.position.y - bounds.y }
-      const upd = await updateCanvasNode(projectId, n.id, { position: rel, parent_id: groupId })
+      const rel = {
+        x: Math.round(n.position.x - bounds.x),
+        y: Math.round(n.position.y - bounds.y),
+      }
+      const upd = await updateCanvasNode(pid, n.id, { position: rel, parent_id: groupId })
       if (upd.code === 'success' && upd.data) {
         canvasNodesRef.current.set(n.id, upd.data)
       }
@@ -788,10 +1175,12 @@ function CanvasEditorInner() {
     setSelectedNodeId(groupId)
     setPanelVisible(false)
     message.success('已创建分组')
-  }, [projectId, groupableSelected, rebuildFlowNodes])
+  }, [groupableSelected, rebuildFlowNodes, ensurePersisted])
 
   const handleUngroup = useCallback(async () => {
-    if (!projectId || !canUngroupSelectionFlag) return
+    if (!canUngroupSelectionFlag) return
+    const pid = activeProjectIdRef.current
+    if (!pid) return
     let groupId: string | null = null
     if (selectedFlowNodes.length === 1 && selectedFlowNodes[0].type === 'group') {
       groupId = selectedFlowNodes[0].id
@@ -806,7 +1195,7 @@ function CanvasEditorInner() {
         x: Math.round((groupNode?.position.x ?? 0) + child.position.x),
         y: Math.round((groupNode?.position.y ?? 0) + child.position.y),
       }
-      const upd = await updateCanvasNode(projectId, child.id, { position: abs, parent_id: null })
+      const upd = await updateCanvasNode(pid, child.id, { position: abs, parent_id: null })
       if (upd.code === 'success' && upd.data) {
         canvasNodesRef.current.set(child.id, upd.data)
       } else {
@@ -816,7 +1205,7 @@ function CanvasEditorInner() {
         }
       }
     }
-    const del = await deleteCanvasNode(projectId, groupId)
+    const del = await deleteCanvasNode(pid, groupId)
     if (del.code !== 'success') {
       message.error(del.message || '解组失败')
       return
@@ -825,7 +1214,7 @@ function CanvasEditorInner() {
     rebuildFlowNodes(children[0]?.id ?? null)
     setSelectedNodeId(children[0]?.id ?? null)
     message.success('已解组')
-  }, [projectId, canUngroupSelectionFlag, selectedFlowNodes, nodes, rebuildFlowNodes])
+  }, [canUngroupSelectionFlag, selectedFlowNodes, nodes, rebuildFlowNodes])
 
   const isValidConnection = useCallback(
     (edgeOrConn: Connection | Edge) => {
@@ -852,7 +1241,7 @@ function CanvasEditorInner() {
     (event, state) => {
       const drag = connectDragRef.current
       connectDragRef.current = null
-      if (!drag || !projectId) return
+      if (!drag) return
       if (state.isValid && state.toNode) return
 
       const touch = 'changedTouches' in event ? event.changedTouches[0] : null
@@ -862,7 +1251,7 @@ function CanvasEditorInner() {
       setPendingConnect({ sourceNodeId: drag.sourceNodeId, flowPos })
       setAddModalOpen(true)
     },
-    [projectId, screenToFlowPosition],
+    [screenToFlowPosition],
   )
 
   const applySelectionUI = useCallback((selNodes: Node[]) => {
@@ -882,6 +1271,7 @@ function CanvasEditorInner() {
   }, [])
 
   const onSelectionStart = useCallback(() => {
+    selectionStartedRef.current = true
     isSelectingRef.current = true
     justFinishedSelectionRef.current = false
     pendingSelectionRef.current = []
@@ -889,33 +1279,84 @@ function CanvasEditorInner() {
   }, [])
 
   const onSelectionEnd = useCallback(() => {
-    isSelectingRef.current = false
     justFinishedSelectionRef.current = true
-    applySelectionUI(pendingSelectionRef.current)
+    const pending = pendingSelectionRef.current
+    try {
+      if (selectionStartedRef.current || pending.length > 0) {
+        applySelectionUI(pending)
+      }
+    } finally {
+      isSelectingRef.current = false
+      selectionStartedRef.current = false
+    }
     window.setTimeout(() => {
       justFinishedSelectionRef.current = false
     }, 120)
   }, [applySelectionUI])
 
-  const onSelectionChange = useCallback(({ nodes: selNodes }: { nodes: Node[] }) => {
-    if (isSelectingRef.current) {
-      pendingSelectionRef.current = selNodes
-      return
+  useEffect(() => {
+    const syncSelectingClass = (pressed: boolean) => {
+      workspaceRef.current?.classList.toggle('canvas-workspace--selecting', pressed)
     }
-    applySelectionUI(selNodes)
-  }, [applySelectionUI])
+    const preventSpaceScroll = (e: KeyboardEvent) => {
+      if (e.code !== 'Space' && e.key !== ' ') return
+      if (e.repeat) return
+      if (isTextEditingTarget(e.target)) return
+      if (isOverlayPanelTarget(e.target)) return
+      e.preventDefault()
+      syncSelectingClass(true)
+    }
+    const onKeyUp = (e: KeyboardEvent) => {
+      if (e.code !== 'Space' && e.key !== ' ') return
+      syncSelectingClass(false)
+    }
+    const onBlur = () => syncSelectingClass(false)
+    window.addEventListener('keydown', preventSpaceScroll, { capture: true })
+    window.addEventListener('keyup', onKeyUp, { capture: true })
+    window.addEventListener('blur', onBlur)
+    return () => {
+      window.removeEventListener('keydown', preventSpaceScroll, { capture: true })
+      window.removeEventListener('keyup', onKeyUp, { capture: true })
+      window.removeEventListener('blur', onBlur)
+      syncSelectingClass(false)
+    }
+  }, [])
+
+  const onSelectionChange = useCallback(
+    ({ nodes: selNodes, edges: selEdges }: { nodes: Node[]; edges: Edge[] }) => {
+      if (justFinishedSelectionRef.current && selNodes.length === 0 && selEdges.length === 0) return
+      if (isSelectingRef.current) {
+        pendingSelectionRef.current = selNodes
+        return
+      }
+      if (selEdges.length > 0 && selNodes.length === 0) {
+        setSelectedNodeId(null)
+        setPanelVisible(false)
+        return
+      }
+      applySelectionUI(selNodes)
+    },
+    [applySelectionUI],
+  )
 
   const onConnect = useCallback(
     async (connection: Connection) => {
       connectDragRef.current = null
       setPendingConnect(null)
-      if (!projectId || !connection.source || !connection.target) return
+      if (!connection.source || !connection.target) return
+      let pid: string
+      try {
+        pid = await ensurePersisted()
+      } catch (e: unknown) {
+        message.error(e instanceof Error ? e.message : '保存失败')
+        return
+      }
       const normalized: Connection = {
         ...connection,
         sourceHandle: connection.sourceHandle ?? 'output',
         targetHandle: connection.targetHandle ?? 'input',
       }
-      const res = await createCanvasEdge(projectId, {
+      const res = await createCanvasEdge(pid, {
         source_node_id: normalized.source!,
         target_node_id: normalized.target!,
       })
@@ -925,7 +1366,7 @@ function CanvasEditorInner() {
             {
               ...normalized,
               id: res.data!.edge_id,
-              type: 'default',
+              type: 'canvas',
               className: 'canvas-edge',
             },
             eds,
@@ -936,25 +1377,79 @@ function CanvasEditorInner() {
         message.error(res.message || '连接失败')
       }
     },
-    [projectId, setEdges, loadProject],
+    [setEdges, loadProject, ensurePersisted],
+  )
+
+  const refreshNodesAfterEdgeDelete = useCallback(
+    async (targetNodeIds: string[]) => {
+      const pid = activeProjectIdRef.current
+      if (!pid || targetNodeIds.length === 0) return
+      try {
+        const res = await getCanvasProject(pid)
+        if (res.code !== 'success' || !res.data?.nodes) return
+        const byId = new Map(res.data.nodes.map((n) => [n.node_id, n]))
+        for (const id of targetNodeIds) {
+          const serverNode = byId.get(id)
+          if (serverNode) {
+            updateLocalNode(id, {
+              input_stale: serverNode.input_stale,
+              upstream_snapshot: serverNode.upstream_snapshot,
+            })
+          }
+        }
+      } catch {
+        /* 连线已删，节点 stale 同步失败不影响主流程 */
+      }
+    },
+    [updateLocalNode],
+  )
+
+  const deleteSelectedEdges = useCallback(
+    async (toDelete: Edge[]) => {
+      if (toDelete.length === 0) return
+      const pid = activeProjectIdRef.current
+      if (!pid) return
+      for (const edge of toDelete) {
+        try {
+          const res = await deleteCanvasEdge(pid, edge.id)
+          if (res.code !== 'success') {
+            message.error(res.message || '删除连线失败')
+            return
+          }
+        } catch (e: unknown) {
+          message.error(e instanceof Error ? e.message : '删除连线失败')
+          return
+        }
+      }
+      const deletedIds = new Set(toDelete.map((e) => e.id))
+      setEdges((eds) => eds.filter((e) => !deletedIds.has(e.id)))
+      const targetIds = [...new Set(toDelete.map((e) => e.target))]
+      await refreshNodesAfterEdgeDelete(targetIds)
+      canvasAgentBridge.notifyCanvasMutation()
+      message.success(toDelete.length > 1 ? `已删除 ${toDelete.length} 条连线` : '已删除连线')
+    },
+    [setEdges, refreshNodesAfterEdgeDelete],
   )
 
   const onEdgesDelete = useCallback(
-    async (deleted: Edge[]) => {
-      if (!projectId) return
-      for (const edge of deleted) {
-        await deleteCanvasEdge(projectId, edge.id)
-      }
+    (deleted: Edge[]) => {
+      void deleteSelectedEdges(deleted)
     },
-    [projectId],
+    [deleteSelectedEdges],
   )
 
+  const onEdgeClick = useCallback((_event: React.MouseEvent, _edge: Edge) => {
+    setSelectedNodeId(null)
+    setPanelVisible(false)
+  }, [])
+
   const onPaneClick = useCallback((event: React.MouseEvent) => {
-    if (isSelectingRef.current || justFinishedSelectionRef.current) return
+    if (isSelectingRef.current || selectionStartedRef.current || justFinishedSelectionRef.current) return
     const target = event.target as HTMLElement
     if (target.closest('.react-flow__node')) return
     if (target.closest('.react-flow__selection')) return
     if (target.closest('.canvas-node-floating-panel')) return
+    if (target.closest('.canvas-title-node-edit-panel')) return
     if (target.closest('.canvas-toolbar')) return
     if (target.closest('.canvas-selection-toolbar')) return
     setSelectedNodeId(null)
@@ -997,6 +1492,13 @@ function CanvasEditorInner() {
   const onNodesChangeWrapped = useCallback(
     (changes: Parameters<typeof onNodesChange>[0]) => {
       for (const ch of changes) {
+        if (ch.type === 'position' && 'dragging' in ch) {
+          if (ch.dragging) {
+            setDraggingNodeId(ch.id)
+          } else {
+            setDraggingNodeId((prev) => (prev === ch.id ? null : prev))
+          }
+        }
         if (ch.type === 'position' && 'dragging' in ch && ch.dragging) {
           setPanelVisible(false)
         }
@@ -1008,7 +1510,7 @@ function CanvasEditorInner() {
           'dimensions' in ch &&
           ch.dimensions &&
           !ch.resizing &&
-          projectId
+          activeProjectIdRef.current
         ) {
           const cn = canvasNodesRef.current.get(ch.id)
           if (cn?.node_type === 'group') {
@@ -1016,13 +1518,13 @@ function CanvasEditorInner() {
             const height = Math.round(ch.dimensions.height)
             const config = { ...cn.config, width, height }
             updateLocalNode(ch.id, { config })
-            void updateCanvasNode(projectId, ch.id, { config })
+            void updateCanvasNode(activeProjectIdRef.current, ch.id, { config })
           }
         }
       }
       onNodesChange(changes)
     },
-    [onNodesChange, projectId, updateLocalNode],
+    [onNodesChange, updateLocalNode],
   )
 
   const onMoveStart = useCallback((event?: MouseEvent | TouchEvent | null) => {
@@ -1073,58 +1575,221 @@ function CanvasEditorInner() {
     [updateLocalNode, setNodes, primaryImageByNode],
   )
 
+  const syncRunningNodesFromServer = useCallback(async () => {
+    const pid = activeProjectIdRef.current
+    if (!pid) return false
+    const runningBefore = listRunningCanvasNodeIds(canvasNodesRef.current.values())
+    if (runningBefore.length === 0) return false
+    try {
+      const res = await getCanvasProject(pid)
+      if (res.code !== 'success' || !res.data?.nodes) return false
+      let synced = false
+      for (const serverNode of res.data.nodes) {
+        const local = canvasNodesRef.current.get(serverNode.node_id)
+        if (!local || !shouldSyncCanvasNodeFromServer(local, serverNode)) continue
+        synced = true
+        if (serverNode.status === 'success') {
+          await applyRunSuccessNode(serverNode.node_id, serverNode)
+        } else {
+          updateLocalNode(serverNode.node_id, serverNode)
+        }
+      }
+      return synced
+    } catch {
+      return false
+    }
+  }, [applyRunSuccessNode, updateLocalNode])
+
+  useEffect(() => {
+    if (loading || runningNodeIds.length === 0) return
+    let cancelled = false
+    const tick = async () => {
+      if (cancelled) return
+      await syncRunningNodesFromServer()
+    }
+    void tick()
+    const timer = window.setInterval(() => void tick(), 2500)
+    return () => {
+      cancelled = true
+      window.clearInterval(timer)
+    }
+  }, [loading, runningNodeIds.join(','), syncRunningNodesFromServer])
+
+  const NODE_GENERATING_MSG = '节点正在生成中，请稍候'
+
+  const isNodeGenerating = (nodeId: string) => {
+    if (runInFlightRef.current === nodeId) return true
+    return canvasNodesRef.current.get(nodeId)?.status === 'running'
+  }
+
+  const isGeneratingConflictMessage = (msg?: string | null) =>
+    Boolean(msg?.includes('节点正在生成中') || msg?.includes('正在生成中'))
+
   const handleRunNode = async (config: CanvasNodeConfig) => {
-    if (!projectId || !selectedNodeId) return
-    if (runInFlightRef.current === selectedNodeId) return
-    runInFlightRef.current = selectedNodeId
-    setRunningNodeId(selectedNodeId)
-    updateLocalNode(selectedNodeId, {
+    const nodeId = selectedNodeId
+    if (!nodeId) return
+    if (isNodeGenerating(nodeId)) {
+      message.info(NODE_GENERATING_MSG)
+      return
+    }
+    let pid: string
+    try {
+      pid = await ensurePersisted()
+    } catch (e: unknown) {
+      message.error(e instanceof Error ? e.message : '保存失败')
+      return
+    }
+    const baseConfig = canvasNodesRef.current.get(nodeId)?.config
+    runInFlightRef.current = nodeId
+    setRunningNodeId(nodeId)
+    updateLocalNode(nodeId, {
       status: 'running',
       error_message: undefined,
-      config: { ...selectedCanvasNode?.config, ...config },
+      config: { ...baseConfig, ...config },
     })
     try {
-      const res = await runCanvasNode(projectId, selectedNodeId, {
+      const res = await runCanvasNode(pid, nodeId, {
         user_id: userId || undefined,
         config_override: config,
       })
       if (res.code === 'success' && res.data?.node) {
-        await applyRunSuccessNode(selectedNodeId, res.data.node)
+        await applyRunSuccessNode(nodeId, res.data.node)
         message.success('生成成功')
+      } else if (isGeneratingConflictMessage(res.message)) {
+        updateLocalNode(nodeId, {
+          status: 'running',
+          error_message: undefined,
+          config: { ...baseConfig, ...config },
+        })
+        message.info(res.message || NODE_GENERATING_MSG)
       } else {
-        updateLocalNode(selectedNodeId, { status: 'failed', error_message: res.message })
+        updateLocalNode(nodeId, { status: 'failed', error_message: res.message })
         message.error(res.message || '生成失败')
       }
-    } catch (e: any) {
-      updateLocalNode(selectedNodeId, { status: 'failed', error_message: e.message })
-      message.error(e.message || '生成失败')
+    } catch (e: unknown) {
+      const errMsg = e instanceof Error ? e.message : '生成失败'
+      if (isGeneratingConflictMessage(errMsg)) {
+        updateLocalNode(nodeId, { status: 'running', error_message: undefined })
+        message.info(errMsg)
+      } else {
+        const synced = await syncRunningNodesFromServer()
+        const latest = canvasNodesRef.current.get(nodeId)
+        if (synced && latest?.status === 'success') {
+          message.success('生成成功')
+        } else if (latest?.status === 'failed') {
+          message.error(latest.error_message || errMsg)
+        } else if (latest?.status === 'running') {
+          message.warning('连接中断，正在等待服务端结果…')
+        } else {
+          updateLocalNode(nodeId, { status: 'failed', error_message: errMsg })
+          message.error(errMsg)
+        }
+      }
     } finally {
-      runInFlightRef.current = null
-      setRunningNodeId(null)
+      if (runInFlightRef.current === nodeId) runInFlightRef.current = null
+      const latest = canvasNodesRef.current.get(nodeId)
+      if (latest?.status !== 'running') {
+        setRunningNodeId((current) => (current === nodeId ? null : current))
+      }
       setRunHistoryRefresh((v) => v + 1)
     }
   }
 
+  const handleSpawnAgentImageTask = useCallback(
+    async (
+      task: CharacterImageTask,
+      opts: { modelCode?: string; stylePresetId?: string; stylePresetName?: string },
+    ) => {
+      const nodeType = resolveAgentTaskNodeType(task)
+      if (nodeType === 'video') {
+        if (!videoModelsRef.current) {
+          const res = await getModels('video')
+          videoModelsRef.current = sortModelsByAdminOrder(res.data || [])
+        }
+      } else if (!imageModelsRef.current) {
+        const res = await getModels('image')
+        imageModelsRef.current = sortModelsByAdminOrder(res.data || [])
+      }
+      const models = nodeType === 'video' ? videoModelsRef.current : imageModelsRef.current
+      const defaultCode = pickDefaultModelCode(models || [])
+      const modelCode =
+        (opts.modelCode && models?.some((m) => m.model_code === opts.modelCode)
+          ? opts.modelCode
+          : defaultCode) || undefined
+      if (!modelCode) {
+        message.warning(nodeType === 'video' ? '暂无可用出视频模型' : '暂无可用出图模型')
+        return
+      }
+      let pid: string
+      try {
+        pid = await ensurePersisted()
+      } catch (e: unknown) {
+        message.error(e instanceof Error ? e.message : '保存失败')
+        return
+      }
+      const base = getSpawnPosition()
+      const offset = agentImageSpawnRef.current
+      agentImageSpawnRef.current += 1
+      const pos = { x: base.x + offset * 48, y: base.y + offset * 36 }
+      const def = nodeType === 'video' ? DEFAULT_NODE_SIZE.video : DEFAULT_NODE_SIZE.image
+      const config = buildCanvasNodeConfigFromAgentTask(task, {
+        modelCode,
+        stylePresetId: opts.stylePresetId,
+        stylePresetName: opts.stylePresetName,
+        width: def.width,
+        height: def.height,
+      })
+      const nodeTitle = characterImageTaskButtonLabel(task)
+      const createRes = await createCanvasNode(pid, {
+        node_type: nodeType,
+        title: nodeTitle,
+        position: pos,
+        config,
+      })
+      if (createRes.code !== 'success' || !createRes.data) {
+        message.error(createRes.message || `创建${nodeType === 'video' ? '视频' : '出图'}节点失败`)
+        return
+      }
+      const nodeId = createRes.data.node_id
+      canvasNodesRef.current.set(nodeId, createRes.data)
+      setNodes((nds) => [...nds, buildFlowNode(createRes.data!, nodeId)])
+      setSelectedNodeId(nodeId)
+      setPanelVisible(canShowEditPanel(createRes.data))
+      canvasAgentBridge.notifyCanvasMutation()
+      message.success(`已创建「${nodeTitle}」节点，可在画布中手动运行`)
+    },
+    [ensurePersisted, setNodes, userId],
+  )
+  canvasAgentBridge.spawnImageTaskRef.current = handleSpawnAgentImageTask
+  canvasAgentBridge.ensureCanvasPersistedRef.current = ensurePersisted
+
   const handleUpdateConfig = async (patch: Partial<CanvasNodeConfig>) => {
-    if (!projectId || !selectedNodeId) return
-    const primary = resolvePrimaryImageIndex(selectedNodeId, selectedCanvasNode || undefined, primaryImageByNode)
-    const merged = { ...(selectedCanvasNode?.config || {}), ...patch, output_image_index: primary }
+    if (!selectedNodeId) return
+    const current = canvasNodesRef.current.get(selectedNodeId)
+    const primary = resolvePrimaryImageIndex(selectedNodeId, current, primaryImageByNode)
+    const merged = mergeCanvasNodeConfig(current?.config, { ...patch, output_image_index: primary })
     updateLocalNode(selectedNodeId, { config: merged })
-    await updateCanvasNode(projectId, selectedNodeId, { config: merged })
+    const pid = activeProjectIdRef.current
+    if (!pid) return
+    await updateCanvasNode(pid, selectedNodeId, { config: merged })
   }
 
   const handleAckStale = async () => {
-    if (!projectId || !selectedNodeId) return
-    const res = await ackCanvasNodeStale(projectId, selectedNodeId)
+    if (!selectedNodeId) return
+    const pid = activeProjectIdRef.current
+    if (!pid) return
+    const res = await ackCanvasNodeStale(pid, selectedNodeId)
     if (res.code === 'success' && res.data) {
       updateLocalNode(selectedNodeId, res.data)
     }
   }
 
   const handleDeleteSelected = useCallback(async () => {
-    if (!projectId || !selectedNodeId) return
+    if (!selectedNodeId) return
+    const pid = activeProjectIdRef.current
+    if (!pid) return
     if (!confirm('确定删除该节点？')) return
-    const res = await deleteCanvasNode(projectId, selectedNodeId)
+    const res = await deleteCanvasNode(pid, selectedNodeId)
     if (res.code === 'success') {
       canvasNodesRef.current.delete(selectedNodeId)
       setNodes((nds) => nds.filter((n) => n.id !== selectedNodeId))
@@ -1132,7 +1797,14 @@ function CanvasEditorInner() {
       setSelectedNodeId(null)
       setPanelVisible(false)
     }
-  }, [projectId, selectedNodeId, setNodes, setEdges])
+  }, [selectedNodeId, setNodes, setEdges])
+
+  const handleDeleteSelectedRef = useRef(handleDeleteSelected)
+  handleDeleteSelectedRef.current = handleDeleteSelected
+  const deleteSelectedEdgesRef = useRef(deleteSelectedEdges)
+  deleteSelectedEdgesRef.current = deleteSelectedEdges
+  const edgesRef = useRef(edges)
+  edgesRef.current = edges
 
   useEffect(() => {
       const onKey = (e: KeyboardEvent) => {
@@ -1154,12 +1826,18 @@ function CanvasEditorInner() {
       }
       if (e.key === 'Delete' || e.key === 'Backspace') {
         if (isOverlayPanelTarget(e.target)) return
-        handleDeleteSelected()
+        const selectedEdges = edgesRef.current.filter((ed) => ed.selected)
+        if (selectedEdges.length > 0) {
+          e.preventDefault()
+          void deleteSelectedEdgesRef.current(selectedEdges)
+          return
+        }
+        void handleDeleteSelectedRef.current()
       }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [handleDeleteSelected, selectedNodeId])
+  }, [selectedNodeId])
 
   const handleViewportChange = useCallback((vp: { x: number; y: number; zoom: number }) => {
     setViewport(vp)
@@ -1177,6 +1855,14 @@ function CanvasEditorInner() {
     [fitView, setNodes],
   )
 
+  const handleRecenterWorkspace = useCallback(() => {
+    if (nodes.length > 0) {
+      fitView({ padding: 0.18, duration: 280, maxZoom: 1.15 })
+      return
+    }
+    rfSetViewport({ x: 0, y: 0, zoom: 0.8 }, { duration: 280 })
+  }, [nodes.length, fitView, rfSetViewport])
+
   const showFloatingPanel =
     panelVisible &&
     !!selectedCanvasNode &&
@@ -1185,6 +1871,12 @@ function CanvasEditorInner() {
       selectedCanvasNode.node_type === 'text' &&
       (selectedCanvasNode.config.text_mode || 'generate') === 'manual'
     )
+
+  const showTitleEditPanel =
+    !!selectedNodeId &&
+    selectedFlowNodes.length === 1 &&
+    selectedCanvasNode?.node_type === 'title' &&
+    draggingNodeId !== selectedNodeId
 
   const selectedFlowNode = useMemo(
     () => (selectedNodeId ? nodes.find((n) => n.id === selectedNodeId) : undefined),
@@ -1199,27 +1891,37 @@ function CanvasEditorInner() {
     )
   }
 
+  const headerProjectId = routeProjectId ?? 'new'
+
   return (
     <div className="canvas-page canvas-page--standalone">
       <CanvasEditorHeader
-        projectId={projectId!}
+        projectId={headerProjectId}
+        isDraft={isDraftRoute && !activeProjectIdRef.current}
         title={title}
         onTitleChange={setTitle}
         userId={userId}
-        onOpenRunHistory={() => setRunHistoryOpen(true)}
+        onOpenRunHistory={routeProjectId && routeProjectId !== 'new' ? () => setRunHistoryOpen(true) : undefined}
       />
 
-      <CanvasRunHistoryDrawer
-        open={runHistoryOpen}
-        onClose={() => setRunHistoryOpen(false)}
-        projectId={projectId!}
-        refreshKey={runHistoryRefresh}
-        onFocusNode={handleFocusNode}
-      />
+      {routeProjectId && routeProjectId !== 'new' && (
+        <CanvasRunHistoryDrawer
+          open={runHistoryOpen}
+          onClose={() => setRunHistoryOpen(false)}
+          projectId={routeProjectId}
+          refreshKey={runHistoryRefresh}
+          onFocusNode={handleFocusNode}
+        />
+      )}
 
       <div
         className="canvas-workspace"
-        ref={workspaceRef}
+        ref={(el) => {
+          if (workspaceRef.current !== el) {
+            ;(workspaceRef as { current: HTMLDivElement | null }).current = el
+          }
+          canvasAgentBridge.setWorkspaceEl(el)
+        }}
         onMouseMove={(e) => {
           lastPointerFlowPosRef.current = screenToFlowPosition({ x: e.clientX, y: e.clientY })
         }}
@@ -1241,10 +1943,12 @@ function CanvasEditorInner() {
           isValidConnection={isValidConnection}
           connectionRadius={56}
           onEdgesDelete={onEdgesDelete}
+          onEdgeClick={onEdgeClick}
           onNodeClick={onNodeClick}
           onNodeDoubleClick={onNodeDoubleClick}
           onMoveStart={onMoveStart}
-          nodeTypes={nodeTypes}
+          nodeTypes={canvasNodeTypes}
+          edgeTypes={canvasEdgeTypes}
           viewport={viewport}
           onViewportChange={handleViewportChange}
           fitView={false}
@@ -1254,17 +1958,26 @@ function CanvasEditorInner() {
           nodesFocusable={false}
           elevateNodesOnSelect={false}
           selectNodesOnDrag={false}
-          selectionOnDrag={false}
+          selectionKeyCode="Space"
+          selectionOnDrag
           panOnDrag
           panActivationKeyCode={null}
-          selectionKeyCode="Space"
+          preventScrolling
           multiSelectionKeyCode={['Control', 'Meta']}
           paneClickDistance={4}
           panOnScroll={false}
           minZoom={0.1}
           maxZoom={2}
+          edgesFocusable
           deleteKeyCode={null}
-          defaultEdgeOptions={{ type: 'default', className: 'canvas-edge' }}
+          defaultEdgeOptions={{
+            type: 'canvas',
+            className: 'canvas-edge',
+            selectable: true,
+            focusable: true,
+            deletable: true,
+            interactionWidth: 28,
+          }}
           proOptions={{ hideAttribution: true }}
         >
           <Background variant={BackgroundVariant.Dots} gap={20} size={1} color="#333" />
@@ -1282,7 +1995,9 @@ function CanvasEditorInner() {
             <NodeInputPanel
               node={selectedCanvasNode}
               upstream={upstreamPreview}
-              running={runningNodeId === selectedNodeId}
+              running={
+                runningNodeId === selectedNodeId || selectedCanvasNode.status === 'running'
+              }
               onRun={handleRunNode}
               onAckStale={handleAckStale}
               onUpdateConfig={handleUpdateConfig}
@@ -1291,7 +2006,24 @@ function CanvasEditorInner() {
           )}
         </NodeFloatingPanel>
 
+        <TitleNodeEditPanel
+          nodeId={selectedNodeId}
+          visible={showTitleEditPanel}
+          node={selectedCanvasNode?.node_type === 'title' ? selectedCanvasNode : null}
+          onUpdateConfig={handleTitleNodeUpdateConfig}
+          onEditContent={(id, content, options) => persistTitleContent(id, content, options)}
+        />
+
         <div className="canvas-toolbar">
+          <button
+            type="button"
+            className="canvas-toolbar__recenter"
+            onClick={handleRecenterWorkspace}
+            title="回到工作区"
+            aria-label="回到工作区"
+          >
+            <AimOutlined />
+          </button>
           <button type="button" className="canvas-toolbar__add" onClick={() => setAddModalOpen(true)} title="添加节点">
             <PlusOutlined />
           </button>
@@ -1304,6 +2036,7 @@ function CanvasEditorInner() {
           onGroup={() => void handleGroup()}
           onUngroup={() => void handleUngroup()}
         />
+
       </div>
 
       <AddNodePickerModal
@@ -1334,6 +2067,7 @@ export default function CanvasEditor() {
   return (
     <ReactFlowProvider>
       <CanvasEditorInner />
+      <CanvasAgentPanelPortal />
     </ReactFlowProvider>
   )
 }

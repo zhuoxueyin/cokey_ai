@@ -1,11 +1,11 @@
 # -*- coding: utf-8 -*-
 """
-AIGC Platform - Service Launcher
+可米幻工坊 - Service Launcher
 =================================
 无窗口、高可靠的服务启动/停止/重启工具。
 
 用法:
-    python launcher.py start      启动后端(8000) + 前端(3001)
+    python launcher.py start      启动后端(8001) + 前端(3001)
     python launcher.py stop       停止所有服务
     python launcher.py restart    停止 -> 启动
     python launcher.py status     查看运行状态
@@ -35,10 +35,29 @@ FRONTEND_DIR = ROOT / "frontend"
 
 PYTHON_EXE = sys.executable  # 当前解释器
 
+
+def _load_backend_port() -> int:
+    """与 backend/app/core/config.py 保持一致（含 backend/.env 中的 APP_PORT）。"""
+    backend_path = str(BACKEND_DIR)
+    if backend_path not in sys.path:
+        sys.path.insert(0, backend_path)
+    prev_cwd = os.getcwd()
+    try:
+        os.chdir(BACKEND_DIR)
+        from app.core.config import settings
+        return int(settings.app_port)
+    except Exception:
+        return 8001
+    finally:
+        os.chdir(prev_cwd)
+
+
+BACKEND_PORT = _load_backend_port()
+
 SERVICES = {
     "backend": {
-        "port": 8000,
-        "health_url": "http://127.0.0.1:8000/api/health",
+        "port": BACKEND_PORT,
+        "health_url": f"http://127.0.0.1:{BACKEND_PORT}/api/health",
         "pid_file": RUNTIME_DIR / "backend.pid",
         "log_file": RUNTIME_DIR / "backend.log",
         "start_timeout": 15,
@@ -345,7 +364,7 @@ def _stop_by_port(name, port):
 # ============ 命令 ============
 
 def cmd_start():
-    _log("===== 启动 AIGC Platform 服务 =====")
+    _log("===== 启动可米幻工坊服务 =====")
     results = {}
     for name in ["backend", "frontend"]:
         ok, msg = start_service(name)
@@ -359,8 +378,8 @@ def cmd_start():
     all_ok = all(results.values()) and len(results) == 2
     if all_ok:
         _log("===== 全部服务启动成功 =====")
-        _log(f"  后端 API : http://localhost:8000/api")
-        _log(f"  API 文档 : http://localhost:8000/docs")
+        _log(f"  后端 API : http://localhost:{BACKEND_PORT}/api")
+        _log(f"  API 文档 : http://localhost:{BACKEND_PORT}/docs")
         _log(f"  前端界面 : http://localhost:3001")
         _log(f"  运行状态 : python {Path(__file__).name} status")
         _log(f"  查看日志 : python {Path(__file__).name} log backend|frontend")
@@ -370,7 +389,7 @@ def cmd_start():
 
 
 def cmd_stop():
-    _log("===== 停止 AIGC Platform 服务 =====")
+    _log("===== 停止可米幻工坊服务 =====")
     any_fail = False
     for name in ["frontend", "backend"]:  # 先停前端，再停后端
         ok, msg = stop_service(name)
@@ -391,14 +410,14 @@ def cmd_stop():
 
 
 def cmd_restart():
-    _log("===== 重启 AIGC Platform 服务 =====")
+    _log("===== 重启可米幻工坊服务 =====")
     cmd_stop()
     time.sleep(2)
     return cmd_start()
 
 
 def cmd_status():
-    _log("===== AIGC Platform Status =====")
+    _log("===== 可米幻工坊运行状态 =====")
     _log(f"  Runtime dir: {RUNTIME_DIR}")
     _log("")
     all_ok = True

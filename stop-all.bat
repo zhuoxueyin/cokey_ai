@@ -1,10 +1,10 @@
 @echo off
 chcp 65001 >nul
-title AIGC Platform - Stop All
+title 可米幻工坊 - Stop All
 cd /d "%~dp0"
 
 echo ========================================
-echo   AIGC Platform - Stopping all services...
+echo   可米幻工坊 - Stopping all services...
 echo ========================================
 echo.
 

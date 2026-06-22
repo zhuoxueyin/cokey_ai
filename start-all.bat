@@ -1,10 +1,10 @@
 @echo off
 chcp 65001 >nul
-title AIGC Platform - Start All
+title 可米幻工坊 - Start All
 cd /d "%~dp0"
 
 echo ========================================
-echo   AIGC Platform - Starting all services...
+echo   可米幻工坊 - Starting all services...
 echo ========================================
 echo.
 

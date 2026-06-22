@@ -7,14 +7,14 @@ from app.core.logging_config import get_logger
 from app.core.redis_client import init_redis
 
 from app.routers import health, assets, prompts
-from app.routers import admin_channels, admin_models, admin_tasks, admin_trace_logs, admin_users, admin_protocol_profiles
-from app.routers import user_models, user_tasks, user_sessions, user_upload, auth, user, user_canvas, user_download
+from app.routers import admin_channels, admin_models, admin_tasks, admin_trace_logs, admin_users, admin_protocol_profiles, admin_drama
+from app.routers import user_models, user_tasks, user_sessions, user_upload, auth, user, user_canvas, user_download, user_drama
 
 logger = get_logger()
 
 app = FastAPI(
-    title="AIGC创作平台 API",
-    description="通用AIGC创作平台后端服务",
+    title=f"{settings.app_name} API",
+    description=settings.app_slogan,
     version="1.0.0",
 )
 
@@ -45,6 +45,8 @@ app.include_router(user.router, prefix=api_prefix)
 app.include_router(user_canvas.router, prefix=api_prefix)
 app.include_router(user_download.router, prefix=api_prefix)
 app.include_router(admin_users.router, prefix=api_prefix)
+app.include_router(admin_drama.router, prefix=api_prefix)
+app.include_router(user_drama.router, prefix=api_prefix)
 
 
 @app.on_event("startup")
@@ -55,6 +57,8 @@ async def startup_event():
         logger.info("MongoDB 初始化完成")
         from app.services.protocol_profile_service import get_protocol_profile_service
         await get_protocol_profile_service().ensure_builtin_seeded()
+        from app.services.drama_bootstrap import bootstrap_drama_module
+        await bootstrap_drama_module(seed_skills=True)
     except Exception as e:
         logger.error(f"MongoDB 初始化失败: {e}")
 

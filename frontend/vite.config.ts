@@ -15,8 +15,11 @@ export default defineConfig({
     host: true,
     proxy: {
       '/api': {
-        target: 'http://localhost:8000',
+        target: 'http://localhost:8001',
         changeOrigin: true,
+        // 创作助手 chat 可能较慢，避免 dev proxy 提前断开
+        timeout: 600_000,
+        proxyTimeout: 600_000,
       },
     },
   },

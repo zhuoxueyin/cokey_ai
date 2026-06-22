@@ -1,0 +1,1077 @@
+[
+  {
+    "style_id": "2d_cartoon_illustration",
+    "name": "二维卡通插画风格",
+    "render_class": "illustration_2d",
+    "genre_tags": [
+      "卡通",
+      "二维",
+      "插画"
+    ],
+    "style_summary_zh": "二维卡通插画风格，卡通, 二维, 插画",
+    "image_positive_en": "2D illustration, hand-drawn anime aesthetic, flat color, 二维卡通插画风格, cinematic composition, high detail, vertical 9:16"
+  },
+  {
+    "style_id": "3d_american_cartoon_game",
+    "name": "3D美式卡通游戏美术",
+    "render_class": "render_3d",
+    "genre_tags": [
+      "3D",
+      "卡通",
+      "游戏"
+    ],
+    "style_summary_zh": "3D美式卡通游戏美术，3D, 卡通, 游戏",
+    "image_positive_en": "3D rendered, CGI, high quality 3D graphics, 3D美式卡通游戏美术, cinematic composition, high detail, vertical 9:16"
+  },
+  {
+    "style_id": "3d_american_cartoon_render",
+    "name": "美国卡通3D渲染风格",
+    "render_class": "render_3d",
+    "genre_tags": [
+      "3D",
+      "美式",
+      "卡通"
+    ],
+    "style_summary_zh": "美国卡通3D渲染风格，3D, 美式, 卡通",
+    "image_positive_en": "3D rendered, CGI, high quality 3D graphics, 美国卡通3D渲染风格, cinematic composition, high detail, vertical 9:16"
+  },
+  {
+    "style_id": "3d_blind_box_paint",
+    "name": "3D盲盒涂装风",
+    "render_class": "render_3d",
+    "genre_tags": [
+      "3D",
+      "盲盒"
+    ],
+    "style_summary_zh": "3D盲盒涂装风，3D, 盲盒",
+    "image_positive_en": "3D rendered, CGI, high quality 3D graphics, 3D盲盒涂装风, cinematic composition, high detail, vertical 9:16"
+  },
+  {
+    "style_id": "3d_cartoon_animation",
+    "name": "3D卡通动画风格",
+    "render_class": "render_3d",
+    "genre_tags": [
+      "3D",
+      "卡通动画",
+      "皮克斯",
+      "家庭向",
+      "电影级"
+    ],
+    "style_summary_zh": "主流 3D 卡通动画长片美学（皮克斯/梦工厂系）：角色魅力优先、表演驱动、材质真实但形体 stylized，光影物理可信、色彩温暖，强调情感叙事与家庭向视觉语言，适用于喜剧、冒险、成长题材。\n\n- 角色设计：appeal 优先，夸张但不失重",
+    "image_positive_en": "3D cartoon animation film style, Pixar-like appeal, soft subsurface skin, stylized proportions, warm cinematic lighting, detailed groom hair, rich environment s"
+  },
+  {
+    "style_id": "3d_cartoon_render",
+    "name": "3D卡通渲染风格",
+    "render_class": "render_3d",
+    "genre_tags": [
+      "3D",
+      "卡通渲染",
+      "Toon",
+      "NPR",
+      "通用"
+    ],
+    "style_summary_zh": "通用 3D 卡通渲染（Toon/NPR）基线风格：清晰轮廓、分层明暗、非写实材质，在保持 3D 体积与透视的同时呈现 2D 动画可读性，适配广泛的角色、场景与商业插画需求，是多数 stylized 3D 项目的默认起点。\n\n- Cel-sh",
+    "image_positive_en": "3D cartoon render, toon shading, cel-shaded lighting, clean black outlines, stylized NPR materials, simple color blocks, clear shadow shapes, game art style, vi"
+  },
+  {
+    "style_id": "3d_character_simple_cartoon",
+    "name": "3D人物(简约卡通风)",
+    "render_class": "render_3d",
+    "genre_tags": [
+      "3D",
+      "简约",
+      "卡通风",
+      "人物",
+      "可爱",
+      "低多边形感"
+    ],
+    "style_summary_zh": "面向角色展示与轻量叙事的 3D 简约卡通风：形体概括、线条干净、表情可读性强，减少写实皮肤与复杂材质，突出可爱、亲和与商业插画感，适合 IP 形象、社交头像、轻喜剧与儿童向内容。\n\n- 头身比略 Q 化（约 1:4 至 1:5），五官大而圆",
+    "image_positive_en": "3D simple cartoon character, cute stylized proportions, clean minimal modeling, soft matte skin, flat color shading with gentle gradient, large expressive eyes,"
+  },
+  {
+    "style_id": "3d_cn_fantasy_animation",
+    "name": "3D中国奇幻动画",
+    "render_class": "render_3d",
+    "genre_tags": [
+      "国风",
+      "奇幻",
+      "3D动画",
+      "神话",
+      "东方美学",
+      "电影级"
+    ],
+    "style_summary_zh": "以国产奇幻动画电影为参照的 3D 渲染美学：融合东方神话叙事、水墨意境与电影级光影，强调宏大世界观、灵韵氛围与史诗感镜头，适用于仙侠、神魔、志怪与东方史诗题材。\n\n- 角色造型偏东方骨相，五官精致、轮廓柔和，服饰层叠飘逸（宽袖、披帛、铠甲纹",
+    "image_positive_en": "3D Chinese fantasy animation film style, cinematic xianxia aesthetic, oriental mythological epic, volumetric god rays, ink-wash atmospheric haze, detailed PBR s"
+  },
+  {
+    "style_id": "3d_cn_fantasy_hd",
+    "name": "国风3D高清渲染风格",
+    "render_class": "render_3d",
+    "genre_tags": [
+      "3D",
+      "国风",
+      "奇幻"
+    ],
+    "style_summary_zh": "国风3D高清渲染风格，3D, 国风, 奇幻",
+    "image_positive_en": "3D rendered, CGI, high quality 3D graphics, 国风3D高清渲染风格, cinematic composition, high detail, vertical 9:16"
+  },
+  {
+    "style_id": "3d_cn_style_hd",
+    "name": "3D国风高清渲染风格",
+    "render_class": "render_3d",
+    "genre_tags": [
+      "3D",
+      "国风",
+      "高清"
+    ],
+    "style_summary_zh": "3D国风高清渲染风格，3D, 国风, 高清",
+    "image_positive_en": "3D rendered, CGI, high quality 3D graphics, 3D国风高清渲染风格, cinematic composition, high detail, vertical 9:16"
+  },
+  {
+    "style_id": "3d_digital_sculpt",
+    "name": "3D数字雕刻风格",
+    "render_class": "render_3d",
+    "genre_tags": [
+      "3D",
+      "雕刻"
+    ],
+    "style_summary_zh": "3D数字雕刻风格，3D, 雕刻",
+    "image_positive_en": "3D rendered, CGI, high quality 3D graphics, 3D数字雕刻风格, cinematic composition, high detail, vertical 9:16"
+  },
+  {
+    "style_id": "3d_diorama_miniature",
+    "name": "3D卡通微缩景观",
+    "render_class": "render_3d",
+    "genre_tags": [
+      "3D",
+      "微缩",
+      "景观",
+      "移轴",
+      "手办感",
+      "卡通"
+    ],
+    "style_summary_zh": "将场景呈现为桌面级微缩模型或立体书景观：卡通化比例、移轴景深、手工质感与玩具沙盘感，适合展示城市街区、主题公园、故事切片与品牌世界观「一览全貌」镜头。\n\n- 比例压缩：建筑与人物如 HO/N 比例或 custom diorama scale",
+    "image_positive_en": "3D cartoon miniature diorama, tilt-shift photography effect, shallow depth of field, tiny stylized buildings and figures, tabletop scale model look, soft studio"
+  },
+  {
+    "style_id": "3d_enhanced_cartoon_render",
+    "name": "3D加强版卡通渲染风格",
+    "render_class": "render_3d",
+    "genre_tags": [
+      "3D",
+      "卡通渲染",
+      "NPR",
+      "加强版",
+      "游戏CG",
+      "描边"
+    ],
+    "style_summary_zh": "在标准 toon/cel-shade 基础上「加强」的 3D 卡通渲染：更明确的描边、分层明暗、饱和色彩与游戏 CG 级细节，兼顾动画可读性与次世代精度，适合动作冒险、格斗、MOBA 过场与高品质卡通剧集。\n\n- NPR + PBR 混合：",
+    "image_positive_en": "enhanced 3D cartoon render, cel-shaded with PBR details, bold ink outlines, multi-step toon lighting, game cinematic quality, vibrant colors, rim light, stylize"
+  },
+  {
+    "style_id": "3d_fantasy_rpg",
+    "name": "3D魔幻角色扮演游戏",
+    "render_class": "render_3d",
+    "genre_tags": [
+      "3D",
+      "魔幻",
+      "RPG"
+    ],
+    "style_summary_zh": "3D魔幻角色扮演游戏，3D, 魔幻, RPG",
+    "image_positive_en": "3D rendered, CGI, high quality 3D graphics, 3D魔幻角色扮演游戏, cinematic composition, high detail, vertical 9:16"
+  },
+  {
+    "style_id": "3d_game_render",
+    "name": "3D游戏渲染风格",
+    "render_class": "render_3d",
+    "genre_tags": [
+      "3D",
+      "游戏"
+    ],
+    "style_summary_zh": "3D游戏渲染风格，3D, 游戏",
+    "image_positive_en": "3D rendered, CGI, high quality 3D graphics, 3D游戏渲染风格, cinematic composition, high detail, vertical 9:16"
+  },
+  {
+    "style_id": "3d_glossy_latex",
+    "name": "3D光泽乳胶渲染风格",
+    "render_class": "render_3d",
+    "genre_tags": [
+      "3D",
+      "乳胶",
+      "光泽",
+      "潮流",
+      "充气感",
+      "高反光"
+    ],
+    "style_summary_zh": "强调高光泽乳胶/塑胶质感的当代 3D 视觉：物体与角色表面如充气玩具或乳胶材质，强 specular 高光、饱和色块与圆润体积，带有潮流艺术、波普与装置感，适合时尚海报、概念艺术与强视觉冲击力镜头。\n\n- 材质核心：latex / viny",
+    "image_positive_en": "3D glossy latex render style, inflated vinyl material, high specular highlights, smooth rubber surface, saturated bold colors, studio hard lighting with rim lig"
+  },
+  {
+    "style_id": "3d_hd_realistic_render",
+    "name": "高清3D真实渲染风格",
+    "render_class": "render_3d",
+    "genre_tags": [
+      "3D",
+      "高清",
+      "写实"
+    ],
+    "style_summary_zh": "高清3D真实渲染风格，3D, 高清, 写实",
+    "image_positive_en": "3D rendered, CGI, high quality 3D graphics, 高清3D真实渲染风格, cinematic composition, high detail, vertical 9:16"
+  },
+  {
+    "style_id": "3d_impasto_paint",
+    "name": "3D厚涂风格",
+    "render_class": "render_3d",
+    "genre_tags": [
+      "3D",
+      "厚涂"
+    ],
+    "style_summary_zh": "3D厚涂风格，3D, 厚涂",
+    "image_positive_en": "3D rendered, CGI, high quality 3D graphics, 3D厚涂风格, cinematic composition, high detail, vertical 9:16"
+  },
+  {
+    "style_id": "3d_jelly_plastic",
+    "name": "3D果冻状塑料风格",
+    "render_class": "render_3d",
+    "genre_tags": [
+      "3D",
+      "果冻",
+      "塑料"
+    ],
+    "style_summary_zh": "3D果冻状塑料风格，3D, 果冻, 塑料",
+    "image_positive_en": "3D rendered, CGI, high quality 3D graphics, 3D果冻状塑料风格, cinematic composition, high detail, vertical 9:16"
+  },
+  {
+    "style_id": "3d_pbr_realistic",
+    "name": "3D真实感PBR渲染风格",
+    "render_class": "render_3d",
+    "genre_tags": [
+      "3D",
+      "PBR",
+      "写实"
+    ],
+    "style_summary_zh": "3D真实感PBR渲染风格，3D, PBR, 写实",
+    "image_positive_en": "3D rendered, CGI, high quality 3D graphics, 3D真实感PBR渲染风格, cinematic composition, high detail, vertical 9:16"
+  },
+  {
+    "style_id": "3d_stylized_render",
+    "name": "3D风格化渲染",
+    "render_class": "render_3d",
+    "genre_tags": [
+      "3D",
+      "风格化"
+    ],
+    "style_summary_zh": "3D风格化渲染，3D, 风格化",
+    "image_positive_en": "3D rendered, CGI, high quality 3D graphics, 3D风格化渲染, cinematic composition, high detail, vertical 9:16"
+  },
+  {
+    "style_id": "3d_surreal_render",
+    "name": "超现实3D渲染风格",
+    "render_class": "render_3d",
+    "genre_tags": [
+      "3D",
+      "超现实"
+    ],
+    "style_summary_zh": "超现实3D渲染风格，3D, 超现实",
+    "image_positive_en": "3D rendered, CGI, high quality 3D graphics, 超现实3D渲染风格, cinematic composition, high detail, vertical 9:16"
+  },
+  {
+    "style_id": "3d_western_cartoon",
+    "name": "3D西方卡通风格",
+    "render_class": "render_3d",
+    "genre_tags": [
+      "3D",
+      "西方",
+      "卡通"
+    ],
+    "style_summary_zh": "3D西方卡通风格，3D, 西方, 卡通",
+    "image_positive_en": "3D rendered, CGI, high quality 3D graphics, 3D西方卡通风格, cinematic composition, high detail, vertical 9:16"
+  },
+  {
+    "style_id": "3d_western_cartoon_draw",
+    "name": "3D西方卡通风格的绘制",
+    "render_class": "render_3d",
+    "genre_tags": [
+      "3D",
+      "西方",
+      "卡通"
+    ],
+    "style_summary_zh": "3D西方卡通风格的绘制，3D, 西方, 卡通",
+    "image_positive_en": "3D rendered, CGI, high quality 3D graphics, 3D西方卡通风格的绘制, cinematic composition, high detail, vertical 9:16"
+  },
+  {
+    "style_id": "absurdist_high_key_white",
+    "name": "荒诞高调白色调电影风格",
+    "render_class": "live_action",
+    "genre_tags": [
+      "荒诞",
+      "高调",
+      "白色调"
+    ],
+    "style_summary_zh": "荒诞高调白色调电影风格，荒诞, 高调, 白色调",
+    "image_positive_en": "cinematic live-action photography, realistic film still, 荒诞高调白色调电影风格, cinematic composition, high detail, vertical 9:16"
+  },
+  {
+    "style_id": "american_boom_era",
+    "name": "上美画风",
+    "render_class": "illustration_2d",
+    "genre_tags": [
+      "上美",
+      "上美影",
+      "国风",
+      "2D动画",
+      "工笔",
+      "水墨",
+      "神话",
+      "古典",
+      "民间美术",
+      "戏曲",
+      "仙侠",
+      "寓言"
+    ],
+    "style_summary_zh": "上海美术电影制片厂经典国风动画美学：承袭中国传统绘画、戏曲与民间美术，以工笔线条、装饰性色块与写意留白并重，呈现神话传说、民间故事中的东方奇幻与诗意叙事。整体气质典雅、庄重而不失灵动，适合神话题材、古典传奇、少儿寓言及具有民族符号感的 AI",
+    "image_positive_en": "Shanghai Animation Film Studio classic Chinese animation style, 1960s-1980s Chinese ink and watercolor animation aesthetic, traditional Gongbi linework, flat co"
+  },
+  {
+    "style_id": "american_comic_sketch",
+    "name": "美国漫画简笔插画风格",
+    "render_class": "illustration_2d",
+    "genre_tags": [
+      "美漫",
+      "简笔"
+    ],
+    "style_summary_zh": "美国漫画简笔插画风格，美漫, 简笔",
+    "image_positive_en": "2D illustration, hand-drawn anime aesthetic, flat color, 美国漫画简笔插画风格, cinematic composition, high detail, vertical 9:16"
+  },
+  {
+    "style_id": "american_dark_illustration",
+    "name": "美式黑暗插画风格",
+    "render_class": "illustration_2d",
+    "genre_tags": [
+      "美式",
+      "黑暗",
+      "插画"
+    ],
+    "style_summary_zh": "美式黑暗插画风格，美式, 黑暗, 插画",
+    "image_positive_en": "2D illustration, hand-drawn anime aesthetic, flat color, 美式黑暗插画风格, cinematic composition, high detail, vertical 9:16"
+  },
+  {
+    "style_id": "american_game_concept_art_2d",
+    "name": "美国游戏概念艺术风格",
+    "render_class": "illustration_2d",
+    "genre_tags": [
+      "游戏",
+      "概念艺术",
+      "美式"
+    ],
+    "style_summary_zh": "美国游戏概念艺术风格，游戏, 概念艺术, 美式",
+    "image_positive_en": "2D illustration, hand-drawn anime aesthetic, flat color, 美国游戏概念艺术风格, cinematic composition, high detail, vertical 9:16"
+  },
+  {
+    "style_id": "american_retro_film_tv",
+    "name": "美式复古影视风格",
+    "render_class": "live_action",
+    "genre_tags": [
+      "美式",
+      "复古",
+      "影视"
+    ],
+    "style_summary_zh": "美式复古影视风格，美式, 复古, 影视",
+    "image_positive_en": "cinematic live-action photography, realistic film still, 美式复古影视风格, cinematic composition, high detail, vertical 9:16"
+  },
+  {
+    "style_id": "american_retro_hollywood",
+    "name": "美式复古好莱坞",
+    "render_class": "live_action",
+    "genre_tags": [
+      "美式",
+      "复古",
+      "好莱坞"
+    ],
+    "style_summary_zh": "美式复古好莱坞，美式, 复古, 好莱坞",
+    "image_positive_en": "cinematic live-action photography, realistic film still, 美式复古好莱坞, cinematic composition, high detail, vertical 9:16"
+  },
+  {
+    "style_id": "american_retro_weird",
+    "name": "美式复古怪异影视风格",
+    "render_class": "live_action",
+    "genre_tags": [
+      "美式",
+      "复古",
+      "怪异"
+    ],
+    "style_summary_zh": "美式复古怪异影视风格，美式, 复古, 怪异",
+    "image_positive_en": "cinematic live-action photography, realistic film still, 美式复古怪异影视风格, cinematic composition, high detail, vertical 9:16"
+  },
+  {
+    "style_id": "ancient_romance_soft_glow",
+    "name": "古偶唯美柔光",
+    "render_class": "live_action",
+    "genre_tags": [
+      "古偶",
+      "唯美",
+      "柔光"
+    ],
+    "style_summary_zh": "古偶唯美柔光，古偶, 唯美, 柔光",
+    "image_positive_en": "cinematic live-action photography, realistic film still, 古偶唯美柔光, cinematic composition, high detail, vertical 9:16"
+  },
+  {
+    "style_id": "anime_3render2",
+    "name": "动漫三渲二风格",
+    "render_class": "illustration_2d",
+    "genre_tags": [
+      "动漫",
+      "三渲二"
+    ],
+    "style_summary_zh": "动漫三渲二风格，动漫, 三渲二",
+    "image_positive_en": "2D illustration, hand-drawn anime aesthetic, flat color, 动漫三渲二风格, cinematic composition, high detail, vertical 9:16"
+  },
+  {
+    "style_id": "anime_concept_art_2d",
+    "name": "二次元概念艺术风格",
+    "render_class": "illustration_2d",
+    "genre_tags": [
+      "二次元",
+      "概念艺术"
+    ],
+    "style_summary_zh": "二次元概念艺术风格，二次元, 概念艺术",
+    "image_positive_en": "2D illustration, hand-drawn anime aesthetic, flat color, 二次元概念艺术风格, cinematic composition, high detail, vertical 9:16"
+  },
+  {
+    "style_id": "bw_2d_comic_animation",
+    "name": "黑白二维漫画动画风格",
+    "render_class": "illustration_2d",
+    "genre_tags": [
+      "黑白",
+      "漫画",
+      "动画"
+    ],
+    "style_summary_zh": "黑白二维漫画动画风格，黑白, 漫画, 动画",
+    "image_positive_en": "2D illustration, hand-drawn anime aesthetic, flat color, 黑白二维漫画动画风格, cinematic composition, high detail, vertical 9:16"
+  },
+  {
+    "style_id": "bw_ink_wash",
+    "name": "黑白水墨风格",
+    "render_class": "illustration_2d",
+    "genre_tags": [
+      "水墨",
+      "黑白"
+    ],
+    "style_summary_zh": "黑白水墨风格，水墨, 黑白",
+    "image_positive_en": "2D illustration, hand-drawn anime aesthetic, flat color, 黑白水墨风格, cinematic composition, high detail, vertical 9:16"
+  },
+  {
+    "style_id": "children_crayon_handdrawn",
+    "name": "儿童蜡笔手绘插画风格",
+    "render_class": "illustration_2d",
+    "genre_tags": [
+      "儿童",
+      "蜡笔",
+      "手绘"
+    ],
+    "style_summary_zh": "儿童蜡笔手绘插画风格，儿童, 蜡笔, 手绘",
+    "image_positive_en": "2D illustration, hand-drawn anime aesthetic, flat color, 儿童蜡笔手绘插画风格, cinematic composition, high detail, vertical 9:16"
+  },
+  {
+    "style_id": "clay_animation",
+    "name": "粘土动画风格",
+    "render_class": "illustration_2d",
+    "genre_tags": [
+      "粘土",
+      "定格"
+    ],
+    "style_summary_zh": "粘土动画风格，粘土, 定格",
+    "image_positive_en": "2D illustration, hand-drawn anime aesthetic, flat color, 粘土动画风格, cinematic composition, high detail, vertical 9:16"
+  },
+  {
+    "style_id": "cn_90s_realistic_film",
+    "name": "90年代写实电影风格",
+    "render_class": "live_action",
+    "genre_tags": [
+      "90年代",
+      "写实",
+      "电影"
+    ],
+    "style_summary_zh": "90年代写实电影风格，90年代, 写实, 电影",
+    "image_positive_en": "cinematic live-action photography, realistic film still, 90年代写实电影风格, cinematic composition, high detail, vertical 9:16"
+  },
+  {
+    "style_id": "cn_90s_rural_film",
+    "name": "90年代中国农村电影风格",
+    "render_class": "live_action",
+    "genre_tags": [
+      "90年代",
+      "农村",
+      "国产"
+    ],
+    "style_summary_zh": "90年代中国农村电影风格，90年代, 农村, 国产",
+    "image_positive_en": "cinematic live-action photography, realistic film still, 90年代中国农村电影风格, cinematic composition, high detail, vertical 9:16"
+  },
+  {
+    "style_id": "cn_suspense_cold_tone",
+    "name": "国产悬疑冷调",
+    "render_class": "live_action",
+    "genre_tags": [
+      "悬疑",
+      "国产",
+      "冷调"
+    ],
+    "style_summary_zh": "国产悬疑冷调，悬疑, 国产, 冷调",
+    "image_positive_en": "cinematic live-action photography, realistic film still, 国产悬疑冷调, cinematic composition, high detail, vertical 9:16"
+  },
+  {
+    "style_id": "cn_urban_realistic",
+    "name": "国产都市写实",
+    "render_class": "live_action",
+    "genre_tags": [
+      "国产",
+      "都市",
+      "写实"
+    ],
+    "style_summary_zh": "国产都市写实，国产, 都市, 写实",
+    "image_positive_en": "cinematic live-action photography, realistic film still, 国产都市写实, cinematic composition, high detail, vertical 9:16"
+  },
+  {
+    "style_id": "cn_warm_blue_glow",
+    "name": "中式暖调蓝辉风格",
+    "render_class": "live_action",
+    "genre_tags": [
+      "中式",
+      "暖调",
+      "蓝辉"
+    ],
+    "style_summary_zh": "中式暖调蓝辉风格，中式, 暖调, 蓝辉",
+    "image_positive_en": "cinematic live-action photography, realistic film still, 中式暖调蓝辉风格, cinematic composition, high detail, vertical 9:16"
+  },
+  {
+    "style_id": "cyberpunk_digital_illustration",
+    "name": "赛博朋克数字插画风格",
+    "render_class": "illustration_2d",
+    "genre_tags": [
+      "赛博朋克",
+      "数字插画"
+    ],
+    "style_summary_zh": "赛博朋克数字插画风格，赛博朋克, 数字插画",
+    "image_positive_en": "2D illustration, hand-drawn anime aesthetic, flat color, 赛博朋克数字插画风格, cinematic composition, high detail, vertical 9:16"
+  },
+  {
+    "style_id": "dali_surreal",
+    "name": "达利风格",
+    "render_class": "illustration_2d",
+    "genre_tags": [
+      "超现实",
+      "达利"
+    ],
+    "style_summary_zh": "达利风格，超现实, 达利",
+    "image_positive_en": "2D illustration, hand-drawn anime aesthetic, flat color, 达利风格, cinematic composition, high detail, vertical 9:16"
+  },
+  {
+    "style_id": "dark_concept_art",
+    "name": "黑暗原画概念风格",
+    "render_class": "illustration_2d",
+    "genre_tags": [
+      "黑暗",
+      "原画",
+      "概念"
+    ],
+    "style_summary_zh": "黑暗原画概念风格，黑暗, 原画, 概念",
+    "image_positive_en": "2D illustration, hand-drawn anime aesthetic, flat color, 黑暗原画概念风格, cinematic composition, high detail, vertical 9:16"
+  },
+  {
+    "style_id": "dark_fantasy_illustration",
+    "name": "黑暗奇幻插画风格",
+    "render_class": "illustration_2d",
+    "genre_tags": [
+      "黑暗",
+      "奇幻",
+      "插画"
+    ],
+    "style_summary_zh": "黑暗奇幻插画风格，黑暗, 奇幻, 插画",
+    "image_positive_en": "2D illustration, hand-drawn anime aesthetic, flat color, 黑暗奇幻插画风格, cinematic composition, high detail, vertical 9:16"
+  },
+  {
+    "style_id": "dark_manga",
+    "name": "暗黑漫画风格",
+    "render_class": "illustration_2d",
+    "genre_tags": [
+      "暗黑",
+      "漫画"
+    ],
+    "style_summary_zh": "暗黑漫画风格，暗黑, 漫画",
+    "image_positive_en": "2D illustration, hand-drawn anime aesthetic, flat color, 暗黑漫画风格, cinematic composition, high detail, vertical 9:16"
+  },
+  {
+    "style_id": "game_concept_art",
+    "name": "游戏概念艺术风格",
+    "render_class": "illustration_2d",
+    "genre_tags": [
+      "游戏",
+      "概念艺术"
+    ],
+    "style_summary_zh": "游戏概念艺术风格，游戏, 概念艺术",
+    "image_positive_en": "2D illustration, hand-drawn anime aesthetic, flat color, 游戏概念艺术风格, cinematic composition, high detail, vertical 9:16"
+  },
+  {
+    "style_id": "greek_mythology_film",
+    "name": "希腊神话电影风格",
+    "render_class": "live_action",
+    "genre_tags": [
+      "神话",
+      "史诗",
+      "电影"
+    ],
+    "style_summary_zh": "希腊神话电影风格，神话, 史诗, 电影",
+    "image_positive_en": "cinematic live-action photography, realistic film still, 希腊神话电影风格, cinematic composition, high detail, vertical 9:16"
+  },
+  {
+    "style_id": "guoman_2d_illustration",
+    "name": "国漫二维插画风格",
+    "render_class": "illustration_2d",
+    "genre_tags": [
+      "国漫",
+      "二维",
+      "插画"
+    ],
+    "style_summary_zh": "国漫二维插画风格，国漫, 二维, 插画",
+    "image_positive_en": "2D illustration, hand-drawn anime aesthetic, flat color, 国漫二维插画风格, cinematic composition, high detail, vertical 9:16"
+  },
+  {
+    "style_id": "hk_90s_film",
+    "name": "90年代港片风格",
+    "render_class": "live_action",
+    "genre_tags": [
+      "港片",
+      "90年代",
+      "电影"
+    ],
+    "style_summary_zh": "90年代港片风格，港片, 90年代, 电影",
+    "image_positive_en": "cinematic live-action photography, realistic film still, 90年代港片风格, cinematic composition, high detail, vertical 9:16"
+  },
+  {
+    "style_id": "hollywood_bw_classic",
+    "name": "好莱坞黑白电影风格",
+    "render_class": "live_action",
+    "genre_tags": [
+      "好莱坞",
+      "黑白",
+      "经典"
+    ],
+    "style_summary_zh": "好莱坞黑白电影风格，好莱坞, 黑白, 经典",
+    "image_positive_en": "cinematic live-action photography, realistic film still, 好莱坞黑白电影风格, cinematic composition, high detail, vertical 9:16"
+  },
+  {
+    "style_id": "horror_film",
+    "name": "恐怖电影风格",
+    "render_class": "live_action",
+    "genre_tags": [
+      "恐怖",
+      "电影",
+      "暗调"
+    ],
+    "style_summary_zh": "恐怖电影风格，恐怖, 电影, 暗调",
+    "image_positive_en": "cinematic live-action photography, realistic film still, 恐怖电影风格, cinematic composition, high detail, vertical 9:16"
+  },
+  {
+    "style_id": "hq_2d_shonen_anime",
+    "name": "高质量2D热血动漫风格",
+    "render_class": "illustration_2d",
+    "genre_tags": [
+      "热血",
+      "动漫",
+      "2D"
+    ],
+    "style_summary_zh": "高质量2D热血动漫风格，热血, 动漫, 2D",
+    "image_positive_en": "2D illustration, hand-drawn anime aesthetic, flat color, 高质量2D热血动漫风格, cinematic composition, high detail, vertical 9:16"
+  },
+  {
+    "style_id": "hq_animation_render",
+    "name": "高品质动画渲染风格",
+    "render_class": "illustration_2d",
+    "genre_tags": [
+      "动画",
+      "高品质"
+    ],
+    "style_summary_zh": "高品质动画渲染风格，动画, 高品质",
+    "image_positive_en": "2D illustration, hand-drawn anime aesthetic, flat color, 高品质动画渲染风格, cinematic composition, high detail, vertical 9:16"
+  },
+  {
+    "style_id": "industrial_film",
+    "name": "工业电影风格",
+    "render_class": "live_action",
+    "genre_tags": [
+      "工业",
+      "电影",
+      "冷硬"
+    ],
+    "style_summary_zh": "工业电影风格，工业, 电影, 冷硬",
+    "image_positive_en": "cinematic live-action photography, realistic film still, 工业电影风格, cinematic composition, high detail, vertical 9:16"
+  },
+  {
+    "style_id": "jp_bw_film_photo",
+    "name": "日本黑白胶片摄影风格",
+    "render_class": "live_action",
+    "genre_tags": [
+      "日系",
+      "黑白",
+      "胶片"
+    ],
+    "style_summary_zh": "日本黑白胶片摄影风格，日系, 黑白, 胶片",
+    "image_positive_en": "cinematic live-action photography, realistic film still, 日本黑白胶片摄影风格, cinematic composition, high detail, vertical 9:16"
+  },
+  {
+    "style_id": "jp_flat_illustration",
+    "name": "日系平涂插画风格",
+    "render_class": "illustration_2d",
+    "genre_tags": [
+      "日系",
+      "平涂",
+      "插画"
+    ],
+    "style_summary_zh": "日系平涂插画风格，日系, 平涂, 插画",
+    "image_positive_en": "2D illustration, hand-drawn anime aesthetic, flat color, 日系平涂插画风格, cinematic composition, high detail, vertical 9:16"
+  },
+  {
+    "style_id": "jp_life_natural",
+    "name": "日式生活自然",
+    "render_class": "live_action",
+    "genre_tags": [
+      "日系",
+      "生活",
+      "自然"
+    ],
+    "style_summary_zh": "日式生活自然，日系, 生活, 自然",
+    "image_positive_en": "cinematic live-action photography, realistic film still, 日式生活自然, cinematic composition, high detail, vertical 9:16"
+  },
+  {
+    "style_id": "jp_youth_film",
+    "name": "日式青春胶片",
+    "render_class": "live_action",
+    "genre_tags": [
+      "日系",
+      "青春",
+      "胶片"
+    ],
+    "style_summary_zh": "日式青春胶片，日系, 青春, 胶片",
+    "image_positive_en": "cinematic live-action photography, realistic film still, 日式青春胶片, cinematic composition, high detail, vertical 9:16"
+  },
+  {
+    "style_id": "kdrama_urban_soft",
+    "name": "韩剧都市柔光",
+    "render_class": "live_action",
+    "genre_tags": [
+      "韩剧",
+      "都市",
+      "柔光"
+    ],
+    "style_summary_zh": "韩剧都市柔光，韩剧, 都市, 柔光",
+    "image_positive_en": "cinematic live-action photography, realistic film still, 韩剧都市柔光, cinematic composition, high detail, vertical 9:16"
+  },
+  {
+    "style_id": "kr_cold_minimal_film",
+    "name": "韩国冷淡风电影风格",
+    "render_class": "live_action",
+    "genre_tags": [
+      "韩系",
+      "冷淡",
+      "极简"
+    ],
+    "style_summary_zh": "韩国冷淡风电影风格，韩系, 冷淡, 极简",
+    "image_positive_en": "cinematic live-action photography, realistic film still, 韩国冷淡风电影风格, cinematic composition, high detail, vertical 9:16"
+  },
+  {
+    "style_id": "minimal_illustration",
+    "name": "简洁插画风格",
+    "render_class": "illustration_2d",
+    "genre_tags": [
+      "简洁",
+      "插画",
+      "留白"
+    ],
+    "style_summary_zh": "简洁插画风格，简洁, 插画, 留白",
+    "image_positive_en": "2D illustration, hand-drawn anime aesthetic, flat color, 简洁插画风格, cinematic composition, high detail, vertical 9:16"
+  },
+  {
+    "style_id": "moe_kawaii",
+    "name": "萌系风格",
+    "render_class": "illustration_2d",
+    "genre_tags": [
+      "萌系",
+      "二次元"
+    ],
+    "style_summary_zh": "萌系风格，萌系, 二次元",
+    "image_positive_en": "2D illustration, hand-drawn anime aesthetic, flat color, 萌系风格, cinematic composition, high detail, vertical 9:16"
+  },
+  {
+    "style_id": "neon_cyber_film",
+    "name": "霓虹赛博电影风格",
+    "render_class": "live_action",
+    "genre_tags": [
+      "赛博朋克",
+      "霓虹",
+      "电影"
+    ],
+    "style_summary_zh": "霓虹赛博电影风格，赛博朋克, 霓虹, 电影",
+    "image_positive_en": "cinematic live-action photography, realistic film still, 霓虹赛博电影风格, cinematic composition, high detail, vertical 9:16"
+  },
+  {
+    "style_id": "orange_yellow_cinematic",
+    "name": "橙黄色电影风格",
+    "render_class": "live_action",
+    "genre_tags": [
+      "暖色",
+      "电影",
+      "橙黄"
+    ],
+    "style_summary_zh": "橙黄色电影风格，暖色, 电影, 橙黄",
+    "image_positive_en": "cinematic live-action photography, realistic film still, 橙黄色电影风格, cinematic composition, high detail, vertical 9:16"
+  },
+  {
+    "style_id": "palace_intrigue_cold",
+    "name": "宫斗权谋冷峻风格",
+    "render_class": "live_action",
+    "genre_tags": [
+      "古风",
+      "权谋",
+      "冷峻"
+    ],
+    "style_summary_zh": "宫斗权谋冷峻风格，古风, 权谋, 冷峻",
+    "image_positive_en": "cinematic live-action photography, realistic film still, 宫斗权谋冷峻风格, cinematic composition, high detail, vertical 9:16"
+  },
+  {
+    "style_id": "purple_tone_cinematic",
+    "name": "紫色色调电影风格",
+    "render_class": "live_action",
+    "genre_tags": [
+      "紫色",
+      "调色",
+      "电影"
+    ],
+    "style_summary_zh": "紫色色调电影风格，紫色, 调色, 电影",
+    "image_positive_en": "cinematic live-action photography, realistic film still, 紫色色调电影风格, cinematic composition, high detail, vertical 9:16"
+  },
+  {
+    "style_id": "retro_cinematography",
+    "name": "复古电影摄影风格",
+    "render_class": "live_action",
+    "genre_tags": [
+      "复古",
+      "摄影",
+      "电影"
+    ],
+    "style_summary_zh": "复古电影摄影风格，复古, 摄影, 电影",
+    "image_positive_en": "cinematic live-action photography, realistic film still, 复古电影摄影风格, cinematic composition, high detail, vertical 9:16"
+  },
+  {
+    "style_id": "retro_halftone_gothic",
+    "name": "复古半色调暗色调哥特风格",
+    "render_class": "illustration_2d",
+    "genre_tags": [
+      "哥特",
+      "半色调",
+      "复古"
+    ],
+    "style_summary_zh": "复古半色调暗色调哥特风格，哥特, 半色调, 复古",
+    "image_positive_en": "2D illustration, hand-drawn anime aesthetic, flat color, 复古半色调暗色调哥特风格, cinematic composition, high detail, vertical 9:16"
+  },
+  {
+    "style_id": "retro_narrative_film",
+    "name": "复古叙事电影风格",
+    "render_class": "live_action",
+    "genre_tags": [
+      "复古",
+      "叙事",
+      "电影"
+    ],
+    "style_summary_zh": "复古叙事电影风格，复古, 叙事, 电影",
+    "image_positive_en": "cinematic live-action photography, realistic film still, 复古叙事电影风格, cinematic composition, high detail, vertical 9:16"
+  },
+  {
+    "style_id": "retro_psychedelic_texture",
+    "name": "复古肌理迷幻插画风格",
+    "render_class": "illustration_2d",
+    "genre_tags": [
+      "迷幻",
+      "复古",
+      "肌理"
+    ],
+    "style_summary_zh": "复古肌理迷幻插画风格，迷幻, 复古, 肌理",
+    "image_positive_en": "2D illustration, hand-drawn anime aesthetic, flat color, 复古肌理迷幻插画风格, cinematic composition, high detail, vertical 9:16"
+  },
+  {
+    "style_id": "retro_sci_fi_atompunk",
+    "name": "复古科幻原子朋克",
+    "render_class": "live_action",
+    "genre_tags": [
+      "科幻",
+      "复古"
+    ],
+    "style_summary_zh": "复古科幻原子朋克，科幻, 复古",
+    "image_positive_en": "cinematic live-action photography, realistic film still, 复古科幻原子朋克, cinematic composition, high detail, vertical 9:16"
+  },
+  {
+    "style_id": "retro_war_film",
+    "name": "复古战争电影风格",
+    "render_class": "live_action",
+    "genre_tags": [
+      "战争",
+      "复古",
+      "电影"
+    ],
+    "style_summary_zh": "复古战争电影风格，战争, 复古, 电影",
+    "image_positive_en": "cinematic live-action photography, realistic film still, 复古战争电影风格, cinematic composition, high detail, vertical 9:16"
+  },
+  {
+    "style_id": "retro_y2k_fantasy",
+    "name": "复古Y2K奇幻风格",
+    "render_class": "illustration_2d",
+    "genre_tags": [
+      "Y2K",
+      "复古",
+      "奇幻"
+    ],
+    "style_summary_zh": "复古Y2K奇幻风格，Y2K, 复古, 奇幻",
+    "image_positive_en": "2D illustration, hand-drawn anime aesthetic, flat color, 复古Y2K奇幻风格, cinematic composition, high detail, vertical 9:16"
+  },
+  {
+    "style_id": "shadow_puppet_illustration",
+    "name": "皮影戏插画风格",
+    "render_class": "illustration_2d",
+    "genre_tags": [
+      "皮影",
+      "传统",
+      "插画"
+    ],
+    "style_summary_zh": "皮影戏插画风格，皮影, 传统, 插画",
+    "image_positive_en": "2D illustration, hand-drawn anime aesthetic, flat color, 皮影戏插画风格, cinematic composition, high detail, vertical 9:16"
+  },
+  {
+    "style_id": "stop_motion",
+    "name": "定格动画风格",
+    "render_class": "illustration_2d",
+    "genre_tags": [
+      "定格",
+      "动画"
+    ],
+    "style_summary_zh": "定格动画风格，定格, 动画",
+    "image_positive_en": "2D illustration, hand-drawn anime aesthetic, flat color, 定格动画风格, cinematic composition, high detail, vertical 9:16"
+  },
+  {
+    "style_id": "suspense_film",
+    "name": "悬疑电影风格",
+    "render_class": "live_action",
+    "genre_tags": [
+      "悬疑",
+      "电影",
+      "紧张"
+    ],
+    "style_summary_zh": "悬疑电影风格，悬疑, 电影, 紧张",
+    "image_positive_en": "cinematic live-action photography, realistic film still, 悬疑电影风格, cinematic composition, high detail, vertical 9:16"
+  },
+  {
+    "style_id": "teal_orange_cinematic",
+    "name": "蓝橙色调影视风格",
+    "render_class": "live_action",
+    "genre_tags": [
+      "蓝橙",
+      "调色",
+      "电影"
+    ],
+    "style_summary_zh": "蓝橙色调影视风格，蓝橙, 调色, 电影",
+    "image_positive_en": "cinematic live-action photography, realistic film still, 蓝橙色调影视风格, cinematic composition, high detail, vertical 9:16"
+  },
+  {
+    "style_id": "tech_cinematic",
+    "name": "科技感电影风格",
+    "render_class": "live_action",
+    "genre_tags": [
+      "科技",
+      "电影",
+      "未来"
+    ],
+    "style_summary_zh": "科技感电影风格，科技, 电影, 未来",
+    "image_positive_en": "cinematic live-action photography, realistic film still, 科技感电影风格, cinematic composition, high detail, vertical 9:16"
+  },
+  {
+    "style_id": "traditional_ink_wash",
+    "name": "传统水墨风格",
+    "render_class": "illustration_2d",
+    "genre_tags": [
+      "传统",
+      "水墨"
+    ],
+    "style_summary_zh": "传统水墨风格，传统, 水墨",
+    "image_positive_en": "2D illustration, hand-drawn anime aesthetic, flat color, 传统水墨风格, cinematic composition, high detail, vertical 9:16"
+  },
+  {
+    "style_id": "ue5_realistic_render",
+    "name": "UE5写实渲染",
+    "render_class": "render_3d",
+    "genre_tags": [
+      "UE5",
+      "写实",
+      "3D"
+    ],
+    "style_summary_zh": "UE5写实渲染，UE5, 写实, 3D",
+    "image_positive_en": "3D rendered, CGI, high quality 3D graphics, UE5写实渲染, cinematic composition, high detail, vertical 9:16"
+  },
+  {
+    "style_id": "vaporwave_illustration",
+    "name": "插画蒸汽波风格",
+    "render_class": "illustration_2d",
+    "genre_tags": [
+      "蒸汽波",
+      "插画"
+    ],
+    "style_summary_zh": "插画蒸汽波风格，蒸汽波, 插画",
+    "image_positive_en": "2D illustration, hand-drawn anime aesthetic, flat color, 插画蒸汽波风格, cinematic composition, high detail, vertical 9:16"
+  },
+  {
+    "style_id": "vintage_industrial_film",
+    "name": "老式工业影视风格",
+    "render_class": "live_action",
+    "genre_tags": [
+      "工业",
+      "复古",
+      "影视"
+    ],
+    "style_summary_zh": "老式工业影视风格，工业, 复古, 影视",
+    "image_positive_en": "cinematic live-action photography, realistic film still, 老式工业影视风格, cinematic composition, high detail, vertical 9:16"
+  },
+  {
+    "style_id": "western_stylized_3d",
+    "name": "欧美风格化3D渲染",
+    "render_class": "render_3d",
+    "genre_tags": [
+      "3D",
+      "欧美",
+      "风格化"
+    ],
+    "style_summary_zh": "欧美风格化3D渲染，3D, 欧美, 风格化",
+    "image_positive_en": "3D rendered, CGI, high quality 3D graphics, 欧美风格化3D渲染, cinematic composition, high detail, vertical 9:16"
+  },
+  {
+    "style_id": "wilderness_cinematic",
+    "name": "荒野电影风格",
+    "render_class": "live_action",
+    "genre_tags": [
+      "荒野",
+      "电影",
+      "史诗"
+    ],
+    "style_summary_zh": "荒野电影风格，荒野, 电影, 史诗",
+    "image_positive_en": "cinematic live-action photography, realistic film still, 荒野电影风格, cinematic composition, high detail, vertical 9:16"
+  },
+  {
+    "style_id": "wuxia_realistic_photo",
+    "name": "武侠江湖写实摄影风格",
+    "render_class": "live_action",
+    "genre_tags": [
+      "武侠",
+      "写实",
+      "摄影"
+    ],
+    "style_summary_zh": "武侠江湖写实摄影风格，武侠, 写实, 摄影",
+    "image_positive_en": "cinematic live-action photography, realistic film still, 武侠江湖写实摄影风格, cinematic composition, high detail, vertical 9:16"
+  }
+]

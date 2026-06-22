@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""双击启动 AIGC Platform — 不弹黑色命令窗口，以消息框显示结果。"""
+"""双击启动可米幻工坊 — 不弹黑色命令窗口，以消息框显示结果。"""
 
 import os
 import sys

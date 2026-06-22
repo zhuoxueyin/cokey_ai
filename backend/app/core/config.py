@@ -4,11 +4,12 @@ from typing import List, Optional
 
 
 class Settings(BaseSettings):
-    app_name: str = "AIGC创作平台"
+    app_name: str = "可米幻工坊"
+    app_slogan: str = "专业短视频AI创作工作室"
     app_env: str = "development"
     app_debug: bool = True
     app_host: str = "0.0.0.0"
-    app_port: int = 8000
+    app_port: int = 8001
 
     mongodb_url: str = "mongodb://localhost:27017"
     mongodb_db_name: str = "aigc_platform"

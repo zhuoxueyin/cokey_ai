@@ -16,11 +16,16 @@ import {
   HistoryOutlined,
   CloudOutlined,
   FileTextOutlined,
+  BgColorsOutlined,
 } from '@ant-design/icons'
 import { useGenerationStore } from '@/store/generation'
 import { generate, uploadAsset, listAssets } from '@/api'
 import { listPrompts, getPublishedPrompts } from '@/api/prompt'
 import type { AssetItem, ModelItem, PromptItem } from '@/types'
+import type { DramaStylePreset } from '@/types/drama'
+import { listDramaStylesUser } from '@/api/drama'
+import StylePickerGrid from '@/components/drama/StylePickerGrid'
+import { composerPopoverProps } from '@/components/composerPopover'
 import {
   type ImageRef,
   extractCdnUrls,
@@ -62,23 +67,8 @@ const RatioIcon = ({ w, h }: { w: number; h: number }) => {
   iw = Math.max(iw, 8)
   ih = Math.max(ih, 8)
   return (
-    <div
-      style={{
-        width: box,
-        height: box,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-      }}
-    >
-      <div
-        style={{
-          width: iw,
-          height: ih,
-          borderRadius: 3,
-          border: '1.5px solid #999',
-        }}
-      />
+    <div className="canvas-ratio-icon" style={{ width: box, height: box }}>
+      <div className="canvas-ratio-icon__inner" style={{ width: iw, height: ih }} />
     </div>
   )
 }
@@ -104,6 +94,27 @@ interface CategoryState {
   uploadImages: ImageRef[]
   uploadVideos: { url: string; file_name?: string }[]
   uploadAudios: { url: string; file_name?: string }[]
+  stylePresetId?: string
+  stylePresetName?: string
+}
+
+const WORKSPACE_COMPOSER_STORAGE_KEY = 'cokey_workspace_composer_states_v1'
+
+function loadPersistedCategoryStates(): Record<string, CategoryState> {
+  try {
+    const raw = sessionStorage.getItem(WORKSPACE_COMPOSER_STORAGE_KEY)
+    if (!raw) {
+      return { text: createDefaultState(), image: createDefaultState(), video: createDefaultState() }
+    }
+    const parsed = JSON.parse(raw) as Record<string, Partial<CategoryState>>
+    return {
+      text: { ...createDefaultState(), ...parsed.text },
+      image: { ...createDefaultState(), ...parsed.image },
+      video: { ...createDefaultState(), ...parsed.video },
+    }
+  } catch {
+    return { text: createDefaultState(), image: createDefaultState(), video: createDefaultState() }
+  }
 }
 
 const createDefaultState = (): CategoryState => ({
@@ -127,12 +138,21 @@ export default function ComposerArea() {
 
   const imageSizeSpec = resolveImageSizeSpec(currentModel)
 
-  // 需求2: 不同类型之间隔离数据
-  const [categoryStates, setCategoryStates] = useState<Record<string, CategoryState>>({
-    text: createDefaultState(),
-    image: createDefaultState(),
-    video: createDefaultState(),
-  })
+  // 需求2: 不同类型之间隔离数据（sessionStorage 持久化，跳转回来不丢）
+  const [categoryStates, setCategoryStates] = useState<Record<string, CategoryState>>(loadPersistedCategoryStates)
+  const [stylePickerOpen, setStylePickerOpen] = useState(false)
+  const [styleList, setStyleList] = useState<DramaStylePreset[]>([])
+
+  useEffect(() => {
+    sessionStorage.setItem(WORKSPACE_COMPOSER_STORAGE_KEY, JSON.stringify(categoryStates))
+  }, [categoryStates])
+
+  useEffect(() => {
+    if (activeCategory !== 'image' && activeCategory !== 'video') return
+    listDramaStylesUser({ page: 1, page_size: 200 }).then((res) => {
+      setStyleList((res.data as DramaStylePreset[]) || [])
+    })
+  }, [activeCategory])
 
   // 当前激活分类的状态
   const currentState = categoryStates[activeCategory] || createDefaultState()
@@ -296,6 +316,12 @@ export default function ComposerArea() {
         }
         if (params.audio !== undefined) {
           state.videoAudio = params.audio
+        }
+        if (params.style_preset_id !== undefined) {
+          state.stylePresetId = params.style_preset_id || undefined
+        }
+        if (params.style_preset_name !== undefined) {
+          state.stylePresetName = params.style_preset_name || undefined
         }
 
         newState[targetCategory] = state
@@ -517,7 +543,26 @@ export default function ComposerArea() {
       message.warning('请先选择模型')
       return
     }
-    if (!currentState.prompt.trim() && activeCategory !== 'text') {
+    if (activeCategory === 'image') {
+      if (
+        !currentState.prompt.trim() &&
+        !currentState.stylePresetId &&
+        currentState.uploadImages.length === 0
+      ) {
+        message.warning('请输入描述、上传参考图或选择风格')
+        return
+      }
+    } else if (activeCategory === 'video') {
+      if (
+        !currentState.prompt.trim() &&
+        !currentState.stylePresetId &&
+        currentState.uploadImages.length === 0 &&
+        currentState.uploadVideos.length === 0
+      ) {
+        message.warning('请输入描述、上传参考或选择风格')
+        return
+      }
+    } else if (!currentState.prompt.trim()) {
       message.warning('请输入描述内容')
       return
     }
@@ -525,6 +570,12 @@ export default function ComposerArea() {
     setSubmitting(true)
 
     const finalParams: Record<string, any> = { prompt: currentState.prompt.trim() }
+    if (currentState.stylePresetId && activeCategory !== 'text') {
+      finalParams.style_preset_id = currentState.stylePresetId
+      if (currentState.stylePresetName) {
+        finalParams.style_preset_name = currentState.stylePresetName
+      }
+    }
 
     try {
       if (currentState.uploadImages.length > 0) {
@@ -670,29 +721,23 @@ export default function ComposerArea() {
   })
 
   const modelPanel = (
-    <div style={{ minWidth: 240 }}>
+    <div className="composer-model-list">
       {availableModels.length === 0 ? (
-        <div style={{ padding: 16, fontSize: 13, color: '#999', textAlign: 'center' }}>暂无可用模型</div>
+        <div className="composer-model-list__empty">暂无可用模型</div>
       ) : (
         availableModels.map((m) => (
           <div
             key={m.model_code}
+            className={`composer-model-list__item${currentModel?.model_code === m.model_code ? ' composer-model-list__item--active' : ''}`}
             onClick={() => handleSelectModel(m)}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              padding: '8px 12px',
-              cursor: 'pointer',
-              borderRadius: 6,
-              background: currentModel?.model_code === m.model_code ? '#e6f4ff' : 'transparent',
-            }}
           >
             <div>
-              <div style={{ fontSize: 13, fontWeight: 500 }}>{m.model_name}</div>
-              <div style={{ fontSize: 11, color: '#999' }}>{m.description || m.model_code}</div>
+              <div className="composer-model-list__name">{m.model_name}</div>
+              <div className="composer-model-list__desc">{m.description || m.model_code}</div>
             </div>
-            {currentModel?.model_code === m.model_code && <CheckOutlined style={{ color: '#1677ff', fontSize: 12 }} />}
+            {currentModel?.model_code === m.model_code && (
+              <CheckOutlined className="composer-model-list__check" />
+            )}
           </div>
         ))
       )}
@@ -700,66 +745,39 @@ export default function ComposerArea() {
   )
 
   const imageConfigPanel = (
-    <div style={{ width: 480, padding: 8 }}>
-      <div style={{ fontSize: 11, color: '#999', marginBottom: 12 }}>
+    <div className="canvas-image-config canvas-image-config--wide">
+      <div className="canvas-image-config__hint">
         {imageSizeSpec.label} 官方尺寸 · 仅显示当前模型支持的组合
       </div>
-      {/* 尺寸比例 */}
-      <div style={{ marginBottom: 16 }}>
-        <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 8 }}>
-          尺寸比例
-          <span style={{ fontSize: 11, color: '#999', fontWeight: 400, marginLeft: 8 }}>
-            {currentSize}
-          </span>
+      <div className="canvas-image-config__section">
+        <div className="canvas-image-config__title">
+          尺寸比例 <span>{currentSize}</span>
         </div>
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(5, 1fr)',
-            gap: 8,
-          }}
-        >
-          {ratioOptionsForClarity.map((opt) => {
-            const selected = currentState.ratio === opt.key
-            return (
-              <div
-                key={opt.key}
-                onClick={() => {
-                  const clarities = getClaritiesForRatio(imageSizeSpec, opt.key)
-                  const nextClarity = clarities.includes(currentState.clarity)
-                    ? currentState.clarity
-                    : clarities[0]
-                  updateCurrentState({ ratio: opt.key, clarity: nextClarity })
-                }}
-                style={{
-                  display: 'flex',
-                  flexDirection: 'column',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: 4,
-                  height: 60,
-                  borderRadius: 8,
-                  background: selected ? '#e6f4ff' : '#fafafa',
-                  border: selected ? '1.5px solid #1677ff' : '1px solid #f0f0f0',
-                  color: selected ? '#1677ff' : '#333',
-                  fontSize: 11,
-                  cursor: 'pointer',
-                  padding: 4,
-                }}
-              >
-                <RatioIcon w={opt.w} h={opt.h} />
-                <span>{opt.label}</span>
-              </div>
-            )
-          })}
+        <div className="canvas-image-config__ratio-grid">
+          {ratioOptionsForClarity.map((opt) => (
+            <button
+              key={opt.key}
+              type="button"
+              className={`canvas-image-config__ratio ${currentState.ratio === opt.key ? 'canvas-image-config__ratio--active' : ''}`}
+              onClick={() => {
+                const clarities = getClaritiesForRatio(imageSizeSpec, opt.key)
+                const nextClarity = clarities.includes(currentState.clarity)
+                  ? currentState.clarity
+                  : clarities[0]
+                updateCurrentState({ ratio: opt.key, clarity: nextClarity })
+              }}
+            >
+              <RatioIcon w={opt.w} h={opt.h} />
+              <span>{opt.label}</span>
+            </button>
+          ))}
         </div>
       </div>
-
-      {/* 清晰度 */}
-      <div style={{ marginBottom: 16 }}>
-        <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 8 }}>清晰度</div>
+      <div className="canvas-image-config__section">
+        <div className="canvas-image-config__title">清晰度</div>
         <Segmented
           block
+          size="small"
           value={currentState.clarity}
           onChange={(v) => {
             const clarity = v as ImageClarity
@@ -775,12 +793,11 @@ export default function ComposerArea() {
           }))}
         />
       </div>
-
-      {/* 质量 */}
-      <div style={{ marginBottom: 16 }}>
-        <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 8 }}>质量</div>
+      <div className="canvas-image-config__section">
+        <div className="canvas-image-config__title">质量</div>
         <Segmented
           block
+          size="small"
           value={currentState.quality}
           onChange={(v) => updateCurrentState({ quality: v as 'auto' | 'low' | 'medium' | 'high' })}
           options={[
@@ -791,12 +808,11 @@ export default function ComposerArea() {
           ]}
         />
       </div>
-
-      {/* 张数 */}
-      <div>
-        <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 8 }}>生成张数</div>
+      <div className="canvas-image-config__section">
+        <div className="canvas-image-config__title">生成张数</div>
         <Segmented
           block
+          size="small"
           value={currentState.count}
           onChange={(v) => updateCurrentState({ count: v as 1 | 2 | 3 | 4 })}
           options={[
@@ -811,18 +827,12 @@ export default function ComposerArea() {
   )
 
   const configPanel = (
-    <div style={{ width: 520, padding: 4 }}>
+    <div className="canvas-image-config canvas-image-config--wide">
       {activeCategory === 'video' ? (
         <>
-          <div style={{ marginBottom: 16 }}>
-            <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 8 }}>视频比例</div>
-            <div
-              style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(7, 1fr)',
-                gap: 8,
-              }}
-            >
+          <div className="canvas-image-config__section">
+            <div className="canvas-image-config__title">视频比例</div>
+            <div className="canvas-image-config__ratio-grid canvas-image-config__ratio-grid--7">
               {[
                 { key: 'auto', label: '智能', icon: 'auto' },
                 { key: '16:9', label: '16:9', w: 16, h: 9 },
@@ -831,44 +841,29 @@ export default function ComposerArea() {
                 { key: '3:4', label: '3:4', w: 3, h: 4 },
                 { key: '9:16', label: '9:16', w: 9, h: 16 },
                 { key: '21:9', label: '21:9', w: 21, h: 9 },
-              ].map((opt) => {
-                const selected = currentState.ratio === opt.key
-                return (
-                  <div
-                    key={opt.key}
-                    onClick={() => updateCurrentState({ ratio: opt.key as AspectRatioKey | 'auto' })}
-                    style={{
-                      display: 'flex',
-                      flexDirection: 'column',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      gap: 4,
-                      height: 64,
-                      borderRadius: 8,
-                      background: selected ? '#e6f4ff' : '#fafafa',
-                      border: selected ? '1.5px solid #1677ff' : '1px solid #f0f0f0',
-                      color: selected ? '#1677ff' : '#333',
-                      fontSize: 11,
-                      cursor: 'pointer',
-                      padding: 4,
-                    }}
-                  >
-                    {opt.key === 'auto' ? (
-                      <div style={{ fontSize: 16 }}>智</div>
-                    ) : (
-                      <RatioIcon w={opt.w as number} h={opt.h as number} />
-                    )}
-                    <span>{opt.label}</span>
-                  </div>
-                )
-              })}
+              ].map((opt) => (
+                <button
+                  key={opt.key}
+                  type="button"
+                  className={`canvas-image-config__ratio ${currentState.ratio === opt.key ? 'canvas-image-config__ratio--active' : ''}`}
+                  onClick={() => updateCurrentState({ ratio: opt.key as AspectRatioKey | 'auto' })}
+                >
+                  {opt.key === 'auto' ? (
+                    <span style={{ fontSize: 16, lineHeight: 1 }}>智</span>
+                  ) : (
+                    <RatioIcon w={opt.w as number} h={opt.h as number} />
+                  )}
+                  <span>{opt.label}</span>
+                </button>
+              ))}
             </div>
           </div>
 
-          <div style={{ marginBottom: 16 }}>
-            <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 8 }}>视频质量</div>
+          <div className="canvas-image-config__section">
+            <div className="canvas-image-config__title">视频质量</div>
             <Segmented
               block
+              size="small"
               value={currentState.videoQuality}
               onChange={(v) => updateCurrentState({ videoQuality: v as '480p' | '720p' })}
               options={[
@@ -878,9 +873,9 @@ export default function ComposerArea() {
             />
           </div>
 
-          <div style={{ marginBottom: 16 }}>
-            <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 8 }}>
-              视频时长：{currentState.videoDuration}秒
+          <div className="canvas-image-config__section">
+            <div className="canvas-image-config__title">
+              视频时长 <span>{currentState.videoDuration}秒</span>
             </div>
             <Slider
               min={VIDEO_DURATION_MIN}
@@ -897,10 +892,11 @@ export default function ComposerArea() {
             />
           </div>
 
-          <div style={{ marginBottom: 8 }}>
-            <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 8 }}>同时生成声音</div>
+          <div className="canvas-image-config__section">
+            <div className="canvas-image-config__title">同时生成声音</div>
             <Segmented
               block
+              size="small"
               value={currentState.videoAudio}
               onChange={(v) => updateCurrentState({ videoAudio: v as boolean })}
               options={[
@@ -1369,22 +1365,9 @@ export default function ComposerArea() {
         {(['image', 'video', 'text'] as const).map((cat) => (
           <button
             key={cat}
+            type="button"
             onClick={() => handleSelectCategory(cat)}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 3,
-              padding: '3px 10px',
-              borderRadius: 14,
-              background: activeCategory === cat ? 'linear-gradient(135deg, #7c5cfc 0%, #9b7dff 100%)' : 'transparent',
-              color: activeCategory === cat ? '#fff' : '#666',
-              border: activeCategory === cat ? 'none' : '1px solid #eee',
-              cursor: 'pointer',
-              fontSize: 11,
-              fontWeight: 500,
-              transition: 'all 0.2s',
-              lineHeight: 1.4,
-            }}
+            className={`composer-cat-btn${activeCategory === cat ? ' composer-cat-btn--active' : ''}`}
           >
             {iconMap[cat]}
             {labelMap[cat]}
@@ -1435,7 +1418,7 @@ export default function ComposerArea() {
           onChange={(e) => updateCurrentState({ prompt: e.target.value })}
           placeholder="描述你想要的画面，支持 @ 引用素材..."
           rows={2}
-          style={{ borderRadius: 8, border: '1px solid #ebebef', lineHeight: 1.45, fontSize: 13, resize: 'none' }}
+          className="composer-prompt-input"
         />
       </div>
 
@@ -1448,20 +1431,7 @@ export default function ComposerArea() {
               type="default"
               size="small"
               onClick={() => openPicker('video')}
-              style={{
-                width: 40,
-                height: 40,
-                borderRadius: 8,
-                border: '1px dashed #d9d9d9',
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: 0,
-                color: '#888',
-                background: '#fafafa',
-                padding: 0,
-              }}
+              className="composer-upload-btn"
             >
               <PlusOutlined style={{ fontSize: 12 }} />
               <span style={{ fontSize: 9 }}>视频</span>
@@ -1472,20 +1442,7 @@ export default function ComposerArea() {
               type="default"
               size="small"
               onClick={() => openPicker('image')}
-              style={{
-                width: 40,
-                height: 40,
-                borderRadius: 8,
-                border: '1px dashed #d9d9d9',
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: 0,
-                color: '#888',
-                background: '#fafafa',
-                padding: 0,
-              }}
+              className="composer-upload-btn"
             >
               <PlusOutlined style={{ fontSize: 12 }} />
               <span style={{ fontSize: 9 }}>图片</span>
@@ -1496,20 +1453,7 @@ export default function ComposerArea() {
               type="default"
               size="small"
               onClick={() => openPicker('audio')}
-              style={{
-                width: 40,
-                height: 40,
-                borderRadius: 8,
-                border: '1px dashed #d9d9d9',
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: 0,
-                color: '#888',
-                background: '#fafafa',
-                padding: 0,
-              }}
+              className="composer-upload-btn"
             >
               <PlusOutlined style={{ fontSize: 12 }} />
               <span style={{ fontSize: 9 }}>音频</span>
@@ -1877,6 +1821,7 @@ export default function ComposerArea() {
         {/* 左侧：模型选择 */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
           <Popover
+            {...composerPopoverProps}
             content={modelPanel}
             title="选择模型"
             trigger="click"
@@ -1901,6 +1846,7 @@ export default function ComposerArea() {
           {/* 图片参数配置 */}
           {activeCategory === 'image' && (
             <Popover
+              {...composerPopoverProps}
               content={imageConfigPanel}
               title="图片配置"
               trigger="click"
@@ -1926,6 +1872,7 @@ export default function ComposerArea() {
           {/* 视频参数配置 */}
           {activeCategory === 'video' && (
             <Popover
+              {...composerPopoverProps}
               content={configPanel}
               title="视频配置"
               trigger="click"
@@ -1946,6 +1893,27 @@ export default function ComposerArea() {
                 <DownOutlined style={{ fontSize: 10 }} />
               </Button>
             </Popover>
+          )}
+
+          {(activeCategory === 'image' || activeCategory === 'video') && (
+            <Button
+              type="default"
+              onClick={() => setStylePickerOpen(true)}
+              style={{
+                borderRadius: 6,
+                padding: '4px 12px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+                fontSize: 12,
+                borderColor: currentState.stylePresetId ? '#7c5cfc' : undefined,
+                color: currentState.stylePresetId ? '#7c5cfc' : undefined,
+              }}
+            >
+              <BgColorsOutlined />
+              <span>{currentState.stylePresetName || '风格'}</span>
+              <DownOutlined style={{ fontSize: 10 }} />
+            </Button>
           )}
 
           {/* 图片参数配置 */}
@@ -2000,6 +1968,21 @@ export default function ComposerArea() {
       >
         {configPanel}
       </Modal>
+
+      <StylePickerGrid
+        open={stylePickerOpen}
+        onClose={() => setStylePickerOpen(false)}
+        styles={styleList}
+        value={currentState.stylePresetId}
+        title="选择参考风格"
+        onChange={(id) => {
+          const style = styleList.find((s) => s.style_id === id)
+          updateCurrentState({
+            stylePresetId: id,
+            stylePresetName: style?.name,
+          })
+        }}
+      />
     </Card>
   )
 }

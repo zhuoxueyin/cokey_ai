@@ -2,7 +2,7 @@ import type { TaskResult } from './index'
 import type { CanvasUpstreamPreview } from '@/utils/canvasUpstream'
 import type { ImageMarkLayer } from './imageMark'
 
-export type CanvasNodeType = 'resource' | 'text' | 'image' | 'video' | 'group'
+export type CanvasNodeType = 'resource' | 'text' | 'image' | 'video' | 'group' | 'title'
 export type CanvasNodeStatus = 'idle' | 'running' | 'success' | 'failed'
 
 export interface CanvasViewport {
@@ -17,6 +17,9 @@ export interface CanvasProject {
   user_id?: string
   title: string
   viewport: CanvasViewport
+  is_workspace_default?: boolean
+  agent_thread_id?: string
+  source_agent_thread_id?: string
   created_at: string
   updated_at: string
   nodes?: CanvasNode[]
@@ -34,6 +37,14 @@ export interface CanvasNodeConfig {
   text_mode?: 'manual' | 'generate'
   /** 文本节点手动编写内容 */
   content?: string
+  /** 标题节点：H1-H5 级别（兼容旧数据，优先用 title_font_size） */
+  heading_level?: 1 | 2 | 3 | 4 | 5
+  /** 标题节点：字号 px（14–40） */
+  title_font_size?: number
+  /** 标题节点：文字颜色 */
+  color?: string
+  /** 标题节点：字体族 */
+  font_family?: 'system' | 'sans' | 'serif' | 'mono'
   /** 节点宽度 */
   width?: number
   /** 节点高度（可选，文本节点自适应） */
@@ -42,6 +53,10 @@ export interface CanvasNodeConfig {
   user_resized?: boolean
   /** 多图结果时作为下游引用的图片索引，默认 0 */
   output_image_index?: number
+  /** 绑定的视觉风格（风格广场 style_id） */
+  style_preset_id?: string
+  /** 风格名称缓存，便于节点展示 */
+  style_preset_name?: string
   /** 图片标记图层（归一化坐标，可重新编辑） */
   mark_layers?: ImageMarkLayer[]
   /** 首次标记前的原图 URL */
@@ -122,6 +137,11 @@ export interface CanvasNodeData {
   onAutoSize?: (width: number, height: number) => void
   onEditText?: (text: string) => void
   onCopyText?: (text: string) => void
+  onTitleChange?: (title: string) => void
+  onEditTitleContent?: (content: string) => void
+  /** 标题节点：单击后进入编辑（非选中即编辑） */
+  titleEditing?: boolean
+  onTitleEditEnd?: () => void
   onOpenPanel?: () => void
   onDuplicate?: () => void
   onUpdateConfig?: (patch: Partial<CanvasNodeConfig>) => void | Promise<void>

@@ -1,4 +1,4 @@
-import { Button, message, Tooltip } from 'antd'
+import { Button, message, Spin, Tooltip } from 'antd'
 import { CopyOutlined, DownloadOutlined, EyeOutlined } from '@ant-design/icons'
 import type { TaskResult } from '@/types'
 import { downloadRemoteFile } from '@/utils/download'
@@ -116,7 +116,12 @@ export default function NodeResultView({
   onSelectPrimaryImage,
 }: NodeResultViewProps) {
   if (status === 'running') {
-    return <div className="canvas-result canvas-result--loading">生成中…</div>
+    return (
+      <div className="canvas-result canvas-result--loading">
+        <Spin size="small" />
+        <span>生成中…</span>
+      </div>
+    )
   }
   if (status === 'failed') {
     return <div className="canvas-result canvas-result--error">{errorMessage || '生成失败'}</div>

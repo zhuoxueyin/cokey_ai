@@ -30,6 +30,27 @@ def extract_ref_node_ids(prompt: str) -> list[str]:
     return REF_TOKEN_RE.findall(prompt or "")
 
 
+def append_attached_text_refs(
+    prompt: str,
+    ref_contents: Dict[str, str],
+    cited_ids: list[str],
+) -> str:
+    """将连线中未通过 @ 引用的文本参考追加到 prompt 末尾（@ 仅控制插入位置）。"""
+    cited = set(cited_ids or [])
+    extras: list[str] = []
+    for node_id, content in (ref_contents or {}).items():
+        if node_id in cited:
+            continue
+        text = (content or "").strip()
+        if text:
+            extras.append(text)
+    if not extras:
+        return prompt
+    suffix = "\n\n".join(extras)
+    base = (prompt or "").strip()
+    return f"{base}\n\n{suffix}" if base else suffix
+
+
 def text_from_source_node(source: Dict[str, Any]) -> Optional[str]:
     src_type = source.get("node_type")
     result = source.get("result") or {}

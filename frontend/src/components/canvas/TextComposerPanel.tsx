@@ -8,8 +8,11 @@ import type { CanvasNodeConfig } from '@/types/canvas'
 import type { CanvasUpstreamRef } from '@/utils/canvasUpstream'
 import CanvasPromptInput from './CanvasPromptInput'
 import { canvasPopoverProps } from './canvasPopover'
+import { useCanvasModelCode } from './useCanvasModelCode'
 
 interface TextComposerPanelProps {
+  nodeId: string
+  configRevision?: string
   config: CanvasNodeConfig
   upstreamRefs?: CanvasUpstreamRef[]
   running?: boolean
@@ -18,6 +21,8 @@ interface TextComposerPanelProps {
 }
 
 export default function TextComposerPanel({
+  nodeId,
+  configRevision,
   config,
   upstreamRefs = [],
   running,
@@ -27,14 +32,18 @@ export default function TextComposerPanel({
   const [models, setModels] = useState<ModelItem[]>([])
   const [promptList, setPromptList] = useState<PromptItem[]>([])
   const [prompt, setPrompt] = useState(config.prompt || '')
-  const [modelCode, setModelCode] = useState(config.model_code)
+  const { modelCode, setModelCode, modelCodeRef } = useCanvasModelCode(
+    config.model_code,
+    nodeId,
+    configRevision,
+  )
   const [presetOpen, setPresetOpen] = useState(false)
 
   useEffect(() => {
     getModels('text').then((res) => {
       if (res.code === 'success' && res.data?.length) {
         setModels(res.data)
-        if (!modelCode) {
+        if (!modelCodeRef.current) {
           const def = res.data.find((m) => m.is_default) || res.data[0]
           setModelCode(def.model_code)
           onUpdateConfig({ model_code: def.model_code })
@@ -50,8 +59,7 @@ export default function TextComposerPanel({
 
   useEffect(() => {
     setPrompt(config.prompt || '')
-    setModelCode(config.model_code)
-  }, [config.prompt, config.model_code])
+  }, [nodeId, configRevision, config.prompt])
 
   const currentModel = models.find((m) => m.model_code === modelCode)
 

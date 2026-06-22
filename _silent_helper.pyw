@@ -34,12 +34,12 @@ result_lines = out.strip().splitlines() if out else []
 
 # 截断到消息框可显示的长度
 title_map = {
-    "start": "启动 AIGC Platform",
-    "stop": "停止 AIGC Platform",
-    "restart": "重启 AIGC Platform",
-    "status": "AIGC Platform 运行状态",
+    "start": "启动 可米幻工坊",
+    "stop": "停止 可米幻工坊",
+    "restart": "重启 可米幻工坊",
+    "status": "可米幻工坊 运行状态",
 }
-title = title_map.get(CMD, "AIGC Platform")
+title = title_map.get(CMD, "可米幻工坊")
 
 # 判断成功与否
 all_ok = any("全部服务启动成功" in l or "停止完成" in l or "已运行" in l for l in result_lines)

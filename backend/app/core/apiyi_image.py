@@ -42,10 +42,20 @@ def is_apiyi_chat_image_model(channel_model_id: str) -> bool:
     return "gpt-image-2-all" in (channel_model_id or "").lower()
 
 
-def is_apiyi_conversational_image_model(channel_model_id: str) -> bool:
-    """APIYI 对话式生图模型（all / vip 均走 chat/completions）。"""
+def is_apiyi_gemini_image_model(channel_model_id: str) -> bool:
+    """APIYI Nano Banana / Gemini 图像模型（对话式 chat/completions）。"""
     mid = (channel_model_id or "").lower()
-    return "gpt-image-2-all" in mid or "gpt-image-2-vip" in mid
+    return ("gemini" in mid and "image" in mid) or "banana" in mid
+
+
+def is_apiyi_conversational_image_model(channel_model_id: str) -> bool:
+    """APIYI 对话式生图模型（gpt-image-2 / Gemini Banana 均走 chat/completions）。"""
+    mid = (channel_model_id or "").lower()
+    return (
+        "gpt-image-2-all" in mid
+        or "gpt-image-2-vip" in mid
+        or is_apiyi_gemini_image_model(channel_model_id)
+    )
 
 
 def _resolve_aspect_ratio(params: Dict[str, Any], channel_model_id: str = "") -> str:

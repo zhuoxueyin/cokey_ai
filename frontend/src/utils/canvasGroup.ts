@@ -29,10 +29,10 @@ export function computeGroupBounds(selected: Node[]): { x: number; y: number; wi
     maxY = Math.max(maxY, n.position.y + h)
   }
   return {
-    x: minX - GROUP_PADDING,
-    y: minY - GROUP_PADDING,
-    width: Math.max(160, maxX - minX + GROUP_PADDING * 2),
-    height: Math.max(120, maxY - minY + GROUP_PADDING * 2),
+    x: Math.round(minX - GROUP_PADDING),
+    y: Math.round(minY - GROUP_PADDING),
+    width: Math.round(Math.max(160, maxX - minX + GROUP_PADDING * 2)),
+    height: Math.round(Math.max(120, maxY - minY + GROUP_PADDING * 2)),
   }
 }
 

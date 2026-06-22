@@ -107,6 +107,27 @@ class ModelGateway:
             )
         return None, None
 
+    async def pick_model_with_channel(
+        self, category: str, preferred_model_code: Optional[str] = None
+    ) -> str:
+        from app.services.model_service import get_model_service
+
+        candidates: List[str] = []
+        if preferred_model_code:
+            candidates.append(preferred_model_code)
+        for item in await get_model_service().list_public(category):
+            code = item.get("model_code")
+            if code and code not in candidates:
+                candidates.append(code)
+        for code in candidates:
+            cfg = await get_model_service().get_by_code(code)
+            if not cfg or cfg.get("status") != "online":
+                continue
+            channel, _ = await self._select_channel(cfg)
+            if channel:
+                return code
+        raise ValueError(f"无可用{category}模型渠道，请在模型管理绑定并启用渠道")
+
     def _build_channel_request(
         self,
         category: str,

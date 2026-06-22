@@ -9,6 +9,7 @@ import {
   EditOutlined,
   RobotOutlined,
   ArrowLeftOutlined,
+  FontSizeOutlined,
 } from '@ant-design/icons'
 import type { CanvasNodeType } from '@/types/canvas'
 
@@ -85,6 +86,10 @@ export default function AddNodePickerModal({
         <button type="button" className="canvas-add-modal__item" onClick={() => setTextPickerOpen(true)}>
           <FileTextOutlined />
           <span>文本</span>
+        </button>
+        <button type="button" className="canvas-add-modal__item" onClick={() => pickNode('title')}>
+          <FontSizeOutlined />
+          <span>标题</span>
         </button>
         <button type="button" className="canvas-add-modal__item" onClick={() => pickNode('image')}>
           <PictureOutlined />

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Body
+from fastapi import APIRouter, Body, Query
 from app.core.response import success, error
 from app.schemas.task import TaskCreate
 from app.services.task_service import get_task_service
@@ -6,7 +6,6 @@ from app.services.model_service import get_model_service
 from app.services.session_service import get_session_service
 from app.services.gateway_service import get_model_gateway
 from app.services.trace_log_service import get_trace_log_service
-from app.services.asset_service import get_asset_service
 from app.services.channel_service import get_channel_service
 from app.adapters import create_adapter
 from app.core.logging_config import get_logger
@@ -173,7 +172,8 @@ async def list_tasks(
     user_id: str = None,
     category: str = None,
     status: str = None,
-    time_range: str = "6h"  # 时间范围：1h, 6h, 24h, 7d, 30d, all
+    time_range: str = "6h",  # 时间范围：1h, 6h, 24h, 7d, 30d, all
+    source: str = Query(None, description="任务来源：workspace | canvas，不传则全部"),
 ):
     """获取用户任务列表（用于前端同步）
     
@@ -194,7 +194,8 @@ async def list_tasks(
             user_id=user_id,
             category=category,
             status=status,
-            time_range=time_range
+            time_range=time_range,
+            source=source,
         )
         return success({
             "data": tasks,
@@ -253,6 +254,19 @@ async def generate(data: TaskCreate):
             except ValueError as ve:
                 return error("validation_error", str(ve))
 
+        exec_params = dict(data.params)
+        if data.category in ("image", "video"):
+            from app.core.canvas_style_prompt import apply_canvas_style_preset
+
+            style_preset_id = exec_params.get("style_preset_id")
+            exec_params = await apply_canvas_style_preset(
+                exec_params,
+                style_preset_id=style_preset_id,
+                node_type=data.category,
+            )
+            exec_params.pop("style_preset_id", None)
+            exec_params.pop("style_preset_name", None)
+
         logger.info(f"[GENERATE] 创建任务...")
         task = await get_task_service().create(
             model_code=data.model_code,
@@ -296,7 +310,7 @@ async def generate(data: TaskCreate):
         result = await gateway.execute(
             model_code=task["model_code"],
             category=task["category"],
-            params=task["params"],
+            params=exec_params,
             trace_id=task.get("trace_id"),
             task_id=task["task_id"],
         )
@@ -324,64 +338,15 @@ async def generate(data: TaskCreate):
             )
 
             # 记录生成的图片/视频到 assets 集合
-            result_data = result.get("data") or {}
-            res_type = result_data.get("type") or data.category
-            if res_type == "image":
-                images = result_data.get("images") or []
-                for idx, img in enumerate(images):
-                    try:
-                        img_url = img.get("url") if isinstance(img, dict) else str(img)
-                        if not img_url:
-                            continue
-                        from app.adapters.weelinking import _ensure_cdn_url
-                        from app.services.storage_service import get_storage_service
+            from app.services.asset_service import register_generated_assets_from_result
 
-                        cdn_url = await _ensure_cdn_url(img_url, task.get("trace_id", ""))
-                        file_path = ""
-                        cdn_urls = [cdn_url] if cdn_url else []
-                        if cdn_url and cdn_url != img_url:
-                            pass
-                        elif cdn_url:
-                            storage = get_storage_service()
-                            if storage.enabled and "/gh/" in cdn_url:
-                                try:
-                                    suffix = f"@{storage.branch}/"
-                                    pos = cdn_url.find(suffix)
-                                    if pos > 0:
-                                        file_path = cdn_url[pos + len(suffix):]
-                                        cdn_urls = storage.get_all_cdn_urls(file_path)
-                                except Exception:
-                                    pass
-                        await get_asset_service().create(
-                            file_name=f"generated_{task['task_id']}_{idx}.png",
-                            file_path=file_path,
-                            url=cdn_url or img_url,
-                            cdn_urls=cdn_urls or [cdn_url or img_url],
-                            file_size=0,
-                            content_type="image/png",
-                            category="image",
-                            source_type="generated",
-                        )
-                    except Exception as _e:
-                        logger.warning(f"记录生成图片到 assets 失败: {_e}")
-            elif res_type == "video":
-                videos = result_data.get("videos") or []
-                for idx, vid in enumerate(videos):
-                    try:
-                        vid_url = vid.get("url") if isinstance(vid, dict) else str(vid)
-                        if vid_url:
-                            await get_asset_service().create(
-                                file_name=f"generated_{task['task_id']}_{idx}.mp4",
-                                file_path="",
-                                url=vid_url,
-                                cdn_urls=[vid_url],
-                                file_size=0,
-                                content_type="video/mp4",
-                                category="video",
-                                source_type="generated",
-                            )
-                    except Exception as _e:
-                        logger.warning(f"记录生成视频到 assets 失败: {_e}")
+            result_data = result.get("data") or {}
+            await register_generated_assets_from_result(
+                result_data,
+                task_id=task["task_id"],
+                category=data.category,
+                trace_id=task.get("trace_id", ""),
+            )
 
             return success({
                 "task_id": task["task_id"],

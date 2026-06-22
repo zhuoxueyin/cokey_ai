@@ -44,6 +44,7 @@ function TextNode({ data, selected }: NodeProps) {
       onResizeStart={d.onResizeStart}
       onOpenPanel={d.onOpenPanel}
       onDuplicate={d.onDuplicate}
+      onTitleChange={d.onTitleChange}
       referenceStrip={
         d.upstream ? <NodeReferenceStrip upstream={d.upstream} variant="node" /> : null
       }

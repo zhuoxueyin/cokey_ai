@@ -2,6 +2,7 @@ import { Handle, NodeResizeControl, Position } from '@xyflow/react'
 import { FormOutlined, CopyOutlined } from '@ant-design/icons'
 import { Tooltip } from 'antd'
 import type { ReactNode } from 'react'
+import InlineEditableTitle from './InlineEditableTitle'
 
 interface BaseNodeShellProps {
   title: string
@@ -25,6 +26,8 @@ interface BaseNodeShellProps {
   onOpenPanel?: () => void
   /** 复制节点 */
   onDuplicate?: () => void
+  /** 双击 header 重命名 */
+  onTitleChange?: (title: string) => void
 }
 
 export default function BaseNodeShell({
@@ -46,6 +49,7 @@ export default function BaseNodeShell({
   referenceStrip,
   onOpenPanel,
   onDuplicate,
+  onTitleChange,
 }: BaseNodeShellProps) {
   return (
     <div
@@ -58,7 +62,7 @@ export default function BaseNodeShell({
       )}
       <div className="canvas-node__header">
         {icon && <span className="canvas-node__icon">{icon}</span>}
-        <span className="canvas-node__title">{title}</span>
+        <InlineEditableTitle title={title} onTitleChange={onTitleChange} />
         {headerExtra}
         {onOpenPanel && selected && (
           <Tooltip title="编辑任务">
@@ -75,7 +79,7 @@ export default function BaseNodeShell({
           </Tooltip>
         )}
         {onDuplicate && selected && (
-          <Tooltip title="复制 (Ctrl+C)，Ctrl+V 粘贴">
+          <Tooltip title="复制节点">
             <button
               type="button"
               className="canvas-node__edit-btn nodrag nopan"

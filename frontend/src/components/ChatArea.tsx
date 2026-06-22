@@ -168,12 +168,12 @@ export default function ChatArea({ tasks: tasksProp }: { tasks?: TaskItem[] }) {
         return (
         <div
           key={idx}
+          className="chat-msg-param-thumb"
           style={{
             width: 50,
             height: 50,
             borderRadius: 4,
             overflow: 'hidden',
-            border: '1px solid #e8e8e8',
           }}
         >
           <img src={src} alt={`图片 ${idx + 1}`} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
@@ -195,12 +195,7 @@ export default function ChatArea({ tasks: tasksProp }: { tasks?: TaskItem[] }) {
       <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
         <div style={{ maxWidth: '78%' }}>
           <Card
-            style={{
-              background: '#fff',
-              border: '1px solid #ebebef',
-              borderRadius: 12,
-              boxShadow: 'none',
-            }}
+            className="chat-msg-card chat-msg-card--user"
             styles={{ body: { padding: '10px 12px' } }}
           >
             <div style={{ display: 'flex', gap: 4, marginBottom: 4 }}>
@@ -213,14 +208,10 @@ export default function ChatArea({ tasks: tasksProp }: { tasks?: TaskItem[] }) {
               </Tag>
             </div>
             {task.params?.prompt && (
-              <div style={{ whiteSpace: 'pre-wrap', fontSize: 13, lineHeight: 1.5, color: '#333' }}>
-                {task.params.prompt}
-              </div>
+              <div className="chat-msg-prompt">{task.params.prompt}</div>
             )}
             {task.params?.images && task.params.images.length > 0 && renderParamImages(task.params.images)}
-            <div style={{ marginTop: 4, fontSize: 10, color: '#aaa', textAlign: 'right' }}>
-              {formatServerDateTime(task.created_at)}
-            </div>
+            <div className="chat-msg-time">{formatServerDateTime(task.created_at)}</div>
           </Card>
         </div>
       </div>
@@ -257,9 +248,9 @@ export default function ChatArea({ tasks: tasksProp }: { tasks?: TaskItem[] }) {
             >
               <RobotOutlined />
             </div>
-            <span style={{ fontSize: 11, fontWeight: 500, color: '#666' }}>AI</span>
+            <span className="chat-msg-ai-label">AI</span>
             {task.duration_ms && (
-              <span style={{ fontSize: 10, color: '#bbb' }}>
+              <span className="chat-msg-ai-duration">
                 <ClockCircleOutlined /> {(task.duration_ms / 1000).toFixed(1)}s
               </span>
             )}
@@ -267,18 +258,13 @@ export default function ChatArea({ tasks: tasksProp }: { tasks?: TaskItem[] }) {
 
           <div style={{ paddingLeft: 28 }}>
             <Card
-              style={{
-                background: '#faf9ff',
-                border: '1px solid #ebebef',
-                borderRadius: 10,
-                boxShadow: 'none',
-              }}
+              className="chat-msg-card chat-msg-card--ai"
               styles={{ body: { padding: '10px 12px' } }}
             >
               {isProcessing && (
                 <div style={{ padding: '8px 0' }}>
                   <Space>
-                    <span style={{ color: '#666' }}>
+                    <span style={{ color: 'var(--ws-text-secondary)' }}>
                       <ThunderboltOutlined /> 生成中，请稍候...
                     </span>
                   </Space>

@@ -74,6 +74,8 @@ export default function NodeInputPanel({
 
       {node.node_type === 'text' && textMode === 'generate' && (
         <TextComposerPanel
+          nodeId={node.node_id}
+          configRevision={node.updated_at}
           config={node.config}
           upstreamRefs={upstream.refs}
           running={running}

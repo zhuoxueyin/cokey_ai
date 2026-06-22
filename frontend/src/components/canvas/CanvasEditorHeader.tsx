@@ -11,11 +11,11 @@ import {
   UserOutlined,
   HistoryOutlined,
 } from '@ant-design/icons'
-import { createCanvasProject, deleteCanvasProject, updateCanvasProject } from '@/api/canvas'
-import { openCanvasProject } from '@/utils/canvasNav'
+import { deleteCanvasProject, updateCanvasProject } from '@/api/canvas'
 
 interface CanvasEditorHeaderProps {
   projectId: string
+  isDraft?: boolean
   title: string
   onTitleChange: (title: string) => void
   userId?: string | null
@@ -31,7 +31,7 @@ function getUserInfo() {
   }
 }
 
-export default function CanvasEditorHeader({ projectId, title, onTitleChange, userId, onOpenRunHistory }: CanvasEditorHeaderProps) {
+export default function CanvasEditorHeader({ projectId, isDraft, title, onTitleChange, onOpenRunHistory }: CanvasEditorHeaderProps) {
   const navigate = useNavigate()
   const [editingTitle, setEditingTitle] = useState(title)
   const userInfo = getUserInfo()
@@ -43,31 +43,28 @@ export default function CanvasEditorHeader({ projectId, title, onTitleChange, us
   const saveTitle = async (next: string) => {
     const trimmed = next.trim()
     if (!trimmed) return
+    onTitleChange(trimmed)
+    if (isDraft || projectId === 'new') return
     const res = await updateCanvasProject(projectId, { title: trimmed })
     if (res.code === 'success') {
       onTitleChange(trimmed)
     }
   }
 
-  const handleNewProject = async () => {
-    const res = await createCanvasProject({
-      title: `创造项目 ${new Date().toLocaleDateString()}`,
-      user_id: userId || undefined,
-    })
-    if (res.code === 'success' && res.data) {
-      openCanvasProject(res.data.project_id)
-      message.success('已在新标签页打开新项目')
-    } else {
-      message.error(res.message || '创建失败')
-    }
+  const handleNewProject = () => {
+    window.location.href = '/canvas/new'
   }
 
   const handleDeleteProject = async () => {
+    if (isDraft || projectId === 'new') {
+      navigate('/my-space')
+      return
+    }
     if (!confirm(`确定删除项目「${title}」？此操作不可恢复`)) return
     const res = await deleteCanvasProject(projectId)
     if (res.code === 'success') {
       message.success('项目已删除')
-      navigate('/canvas')
+      navigate('/my-space')
     } else {
       message.error(res.message || '删除失败')
     }
@@ -75,7 +72,7 @@ export default function CanvasEditorHeader({ projectId, title, onTitleChange, us
 
   const menuItems: MenuProps['items'] = [
     { key: 'home', icon: <HomeOutlined />, label: '回到首页', onClick: () => navigate('/') },
-    { key: 'projects', icon: <AppstoreOutlined />, label: '所有项目', onClick: () => navigate('/canvas') },
+    { key: 'projects', icon: <AppstoreOutlined />, label: '我的空间', onClick: () => navigate('/my-space') },
     { key: 'new', icon: <PlusOutlined />, label: '新建项目', onClick: handleNewProject },
     { type: 'divider' },
     { key: 'delete', icon: <DeleteOutlined />, label: '删除项目', danger: true, onClick: handleDeleteProject },

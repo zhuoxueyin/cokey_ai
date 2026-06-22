@@ -7,6 +7,7 @@ import {
   AimOutlined,
   LinkOutlined,
   CopyOutlined,
+  RobotOutlined,
 } from '@ant-design/icons'
 import { getCanvasRunDetail, listCanvasRuns } from '@/api/canvas'
 import type { CanvasRunDetail, CanvasRunRecord } from '@/types/canvas'
@@ -35,12 +36,14 @@ const NODE_TYPE_ICON: Record<string, ReactNode> = {
   text: <FileTextOutlined />,
   image: <PictureOutlined />,
   video: <VideoCameraOutlined />,
+  agent_chat: <RobotOutlined />,
 }
 
 const CATEGORY_LABEL: Record<string, string> = {
   text: '文本',
   image: '图片',
   video: '视频',
+  agent_chat: '创作助手',
 }
 
 interface IdField {
@@ -190,9 +193,14 @@ export default function CanvasRunHistoryDrawer({
         title="运行记录"
         placement="right"
         width={440}
+        zIndex={1400}
         open={open}
         onClose={onClose}
         className="canvas-run-history-drawer"
+        styles={{
+          body: { padding: '12px 16px', overflow: 'auto' },
+          header: { flexShrink: 0 },
+        }}
         extra={<Text type="secondary">共 {total} 条</Text>}
       >
         {loading && runs.length === 0 ? (
@@ -228,14 +236,14 @@ export default function CanvasRunHistoryDrawer({
                 >
                   <div className="canvas-run-history-list__main">
                     <div className="canvas-run-history-list__title">
-                      {NODE_TYPE_ICON[item.node_type || item.category || ''] || <PictureOutlined />}
+                      {NODE_TYPE_ICON[item.node_type || item.canvas_node_type || item.category || ''] || <PictureOutlined />}
                       <span>{item.node_title || '未命名节点'}</span>
                       <Tag color={st.color} style={{ marginLeft: 'auto' }}>
                         {st.label}
                       </Tag>
                     </div>
                     <div className="canvas-run-history-list__meta">
-                      <span>{CATEGORY_LABEL[item.category || ''] || item.category}</span>
+                      <span>{CATEGORY_LABEL[item.node_type || item.canvas_node_type || item.category || ''] || item.category}</span>
                       <span>{item.model_code}</span>
                       <span>{formatDuration(item.duration_ms)}</span>
                     </div>
@@ -293,6 +301,7 @@ export default function CanvasRunHistoryDrawer({
               ]
         }
         width={720}
+        zIndex={1450}
         destroyOnClose
         className="canvas-run-detail-modal"
       >

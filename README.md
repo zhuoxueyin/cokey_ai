@@ -1,6 +1,6 @@
-# AIGC 创作平台 V1.0
+# 可米幻工坊 V1.0
 
-通用 AIGC 创作平台，参考 LiblibAI 模式构建，支持文本/图像/视频三类模型创作，提供管理后台和对话式创作工作台。
+**可米幻工坊** — 专业短视频AI创作工作室。支持文本/图像/视频三类模型创作，提供管理后台、无限画布与创作助手工作台。
 
 ## 🚀 快速开始
 
@@ -13,13 +13,13 @@
 
 ### 系统启动规则（重要）
 
-- **后端服务**: 固定端口 `8000`，端口被占用时直接报错终止，不自动切换端口
+- **后端服务**: 固定端口 `8001`，端口被占用时直接报错终止，不自动切换端口
 - **前端服务**: 固定端口 `3001`，端口被占用时直接报错终止，不自动切换端口
 - **禁止重启时占用新端口**：如端口冲突请先停止之前的进程，再重新启动
 - **默认访问地址**:
-  - 后端 API: http://localhost:8000
+  - 后端 API: http://localhost:8001
   - 前端界面: http://localhost:3001
-  - API 文档: http://localhost:8000/docs
+  - API 文档: http://localhost:8001/docs
 
 ### 一键启动（Windows）
 
@@ -30,7 +30,7 @@
 start-all.bat
 
 # 分别启动（调试时用）
-start-backend.bat      # 后端服务 (http://localhost:8000)
+start-backend.bat      # 后端服务 (http://localhost:8001)
 start-frontend.bat     # 前端界面 (http://localhost:3001)
 
 # 停止所有服务
@@ -54,7 +54,7 @@ pip install -r requirements.txt
 cp .env.example .env        # Windows: copy .env.example .env
 # 编辑 .env 配置文件
 python scripts/seed_data.py # 初始化示例数据
-uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+uvicorn app.main:app --host 0.0.0.0 --port 8001 --reload
 ```
 
 **前端界面:**
@@ -206,8 +206,8 @@ GITHUB_BRANCH=main
 ## 📚 API 文档
 
 启动后端后访问:
-- Swagger UI: http://localhost:8000/docs
-- ReDoc: http://localhost:8000/redoc
+- Swagger UI: http://localhost:8001/docs
+- ReDoc: http://localhost:8001/redoc
 
 ## 🔐 安全最佳实践
 

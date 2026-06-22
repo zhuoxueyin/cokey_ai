@@ -219,7 +219,7 @@ export default function AssetManager() {
     <div style={{ padding: 24, height: '100%', overflowY: 'auto', boxSizing: 'border-box' }}>
       <Card
         style={{ marginBottom: 16 }}
-        title={<Space><PictureOutlined /><span>资源管理</span></Space>}
+        title={<Space><PictureOutlined /><span>资源仓库</span></Space>}
         extra={
           <Space>
             <Input

@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Button, Input, Card, message, Tabs } from 'antd'
 import { UserOutlined, LockOutlined, EyeOutlined, EyeInvisibleOutlined } from '@ant-design/icons'
 import { register, login } from '@/api'
+import { SITE_NAME, SITE_SLOGAN } from '@/constants/branding'
 import { useGenerationStore } from '@/store/generation'
 
 export default function Login() {
@@ -117,8 +118,9 @@ export default function Login() {
           >
             <UserOutlined />
           </div>
-          <h2 style={{ margin: 0, fontSize: 24, fontWeight: 600 }}>AIGC 创作平台</h2>
-          <p style={{ color: '#999', marginTop: 8 }}>登录后开始您的AI创作之旅</p>
+          <h2 style={{ margin: 0, fontSize: 24, fontWeight: 600 }}>{SITE_NAME}</h2>
+          <p style={{ color: '#999', marginTop: 8, marginBottom: 0 }}>{SITE_SLOGAN}</p>
+          <p style={{ color: '#bbb', marginTop: 6, fontSize: 13 }}>登录后开始创作</p>
         </div>
 
         <Tabs 

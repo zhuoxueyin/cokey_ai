@@ -76,6 +76,7 @@ export const listTasks = (params?: {
   category?: string
   status?: string
   time_range?: string  // 时间范围：1h, 6h, 24h, 7d, 30d, all（默认6h）
+  source?: 'workspace' | 'canvas'
 }): Promise<PaginatedResponse<TaskItem>> => {
   return request.get('/tasks', { params })
 }

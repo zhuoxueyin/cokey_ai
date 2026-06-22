@@ -51,6 +51,7 @@ function ResourceNode({ data, selected }: NodeProps) {
       onResizeEnd={d.onResizeEnd}
       onResizeStart={d.onResizeStart}
       onDuplicate={d.onDuplicate}
+      onTitleChange={d.onTitleChange}
       bodyClassName="canvas-node__body--media canvas-node__body--resource"
     >
       {url ? (

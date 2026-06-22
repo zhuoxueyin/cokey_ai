@@ -53,14 +53,26 @@ function ImageNode({ data, selected }: NodeProps) {
       onResizeStart={d.onResizeStart}
       onOpenPanel={d.onOpenPanel}
       onDuplicate={d.onDuplicate}
+      onTitleChange={d.onTitleChange}
       referenceStrip={
         d.upstream ? <NodeReferenceStrip upstream={d.upstream} variant="node" /> : null
       }
-      bodyClassName={hasResult && !showLoading ? 'canvas-node__body--media' : undefined}
+      bodyClassName={
+        showLoading
+          ? 'canvas-node__body--running'
+          : hasResult && !showLoading
+            ? 'canvas-node__body--media'
+            : undefined
+      }
     >
       {!hasResult && !showLoading &&
-        (node.config.prompt ? (
-          <div className="canvas-node__prompt-preview">{node.config.prompt}</div>
+        (node.config.prompt || node.config.style_preset_name ? (
+          <div className="canvas-node__prompt-preview">
+            {node.config.style_preset_name && (
+              <div className="canvas-node__style-tag">风格：{node.config.style_preset_name}</div>
+            )}
+            {node.config.prompt || '（仅风格参考，无额外描述）'}
+          </div>
         ) : (
           <div className="canvas-result canvas-result--empty">连接上游节点引入参考，或在下方输入提示词</div>
         ))}

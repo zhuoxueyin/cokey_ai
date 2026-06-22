@@ -13,6 +13,7 @@ import type { ModelItem, TaskItem } from '@/types'
 import ChatArea from '@/components/ChatArea'
 import ComposerArea from '@/components/ComposerArea'
 import { CanvasProjectEntry } from '@/pages/CanvasHome'
+import { filterWorkspaceTasks } from '@/utils/taskSource'
 
 type FilterType = 'image' | 'video' | 'text' | 'all'
 
@@ -90,7 +91,7 @@ export default function Workspace() {
         if (sessionId) {
           const res = await getSessionTasks(sessionId, effectiveCategory, hours)
           if (res.code === 'success' && res.data) {
-            nextTasks = res.data
+            nextTasks = filterWorkspaceTasks(res.data)
           }
         } else if (userId) {
           const res = await listTasks({
@@ -99,13 +100,14 @@ export default function Workspace() {
             user_id: userId,
             category: effectiveCategory,
             time_range: hoursToListTimeRange(hours),
+            source: 'workspace',
           })
           if (res.code === 'success' && res.data?.data) {
-            nextTasks = res.data.data as TaskItem[]
+            nextTasks = filterWorkspaceTasks(res.data.data as TaskItem[])
           }
         } else {
           const current = useGenerationStore.getState().tasks
-          nextTasks = current.filter((t) => {
+          nextTasks = filterWorkspaceTasks(current).filter((t) => {
             if (type !== 'all' && t.category !== type) return false
             if (hours > 0) {
               const cutoff = Date.now() - hours * 3600 * 1000
@@ -232,7 +234,7 @@ export default function Workspace() {
 
         <div className="workspace-stream-scroll">
           <div className="workspace-canvas-entry">
-            <CanvasProjectEntry />
+            <CanvasProjectEntry workspaceDefault />
           </div>
           <ChatArea tasks={tasks as TaskItem[]} />
         </div>

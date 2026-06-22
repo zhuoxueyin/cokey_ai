@@ -1,7 +1,7 @@
-# AIGC 创作平台 - 技术方案与运维手册
+# 可米幻工坊 - 技术方案与运维手册
 
-> 版本: **v1.2.3** | 最后更新: **2026-06-18**（画布标记/运行记录/文本链路对齐）
-> 通用 AIGC 创作平台 - 支持多模型、多渠道的 AI 内容生成系统
+> 版本: **v1.2.4** | 最后更新: **2026-06-21**（品牌更名：可米幻工坊 / 专业短视频AI创作工作室）
+> **可米幻工坊** — 专业短视频AI创作工作室；支持多模型、多渠道的 AI 内容生成系统
 > 关联文档: `README.md`（快速开始）、`PROTOCOL_SPEC.md`（渠道协议规范）、`docs/ONBOARDING_SOP.md`（接入 SOP）、`docs/iterations/`（每日迭代记录）
 > 文档版本（v1.2.x）与 `main.py` 中 FastAPI `version: 1.0.0` 为两套编号，互不替代
 
@@ -27,6 +27,9 @@
 | **链路日志** | 全链路步骤、`channel_http_request`、渠道尝试记录 | `TraceLogAdmin` + `trace_log_service` |
 | **用户认证** | JWT 注册/登录、路由守卫 | `auth.py` + `Login.tsx` |
 | **无限画布** | 项目/节点/连线、生文/图/视频、资源标记、运行记录、连线流动动画 | `CanvasEditor` + `canvas_service.py` + `ResourceImageMarkEditor` |
+| **短剧超级智能体** | 创意脑暴→剧本→分镜；脑暴阶段 Markdown 四段式（禁止 JSON 外露）；四类型预制提示 | `DramaSuperAgentPage` + `drama_super_agent_service.py` + `agent_creation_pipeline.py` |
+| **Skill 库** | 在线/代码库 Skill 注册发布；列表对比 `skills/` 与草稿，**有更新 Tag** + 顶部汇总 | `SkillAdminPage` + `drama_skill_service.compute_repo_sync_meta` |
+| **风格广场** | 风格宫格浏览/创建/编辑、`model_protocol` 协议；MongoDB `drama_style_presets` 为唯一数据源 | `/styles` + `StylePlazaPage`；运营 `/admin/drama/styles` |
 
 ### 0.2 核心架构（当前）
 
@@ -115,6 +118,7 @@
 | 画布 CDN 修复 | 文本节点 run 不再静默合并上游文本；文本任务传 `params.images`；text 类也校验参考图 |
 | 画布资源标记 | 上传图工具箱（标记/擦除/裁剪占位/信息/下载）；`ResourceImageMarkEditor` + 两层导出 |
 | 画布运行记录 | `CanvasRunHistoryDrawer`；列表/详情；文本可选中复制 |
+| 画布框选交互 | Space 按下期间显式切换 `selectionOnDrag` / `panOnDrag`，修复刷新后 Space + 左键无法框选节点 |
 | 管理端 TaskAdmin | 筛选区与表格布局修复；时间 UTC→本地 `formatServerDateTime` |
 | API 时间序列化 | `datetime_utils` 统一 ISO8601 带 `Z`；`success/paginated` 递归序列化 |
 
@@ -129,7 +133,7 @@
 | P2 | Redis 未接入队列/限流；MongoDB 大文档截断策略需持续观察 |
 | P2 | 画布节点复制依赖后端 `duplicate` 路由已加载（改代码后须 `launcher restart`） |
 | P2 | 资源图「裁剪」工具箱项尚未实现（仅占位） |
-| P2 | 短剧 Agent 方案已评审，未进研发（见产品讨论） |
+| P2 | 短剧 Super Agent：Skill 链/导出画布待迭代；脑暴阶段已规范 Markdown 输出（v2.1.0 skill.concept） |
 
 ### 0.9 无限画布（MVP+，2026-06-18）
 
@@ -210,7 +214,7 @@
 ┌─────────────────────────────────────────────────────────┐
 │                     后端 (API Server)                   │
 │    FastAPI + Python 3.11 + Motor(MongoDB) + Loguru      │
-│                运行端口: http://localhost:8000           │
+│                运行端口: http://localhost:8001           │
 └─────────────────────────────┬───────────────────────────┘
                               │
            ┌──────────────────┼──────────────────┐
@@ -235,7 +239,7 @@
 │ 前端 React 18 + Zustand + Ant Design (localhost:3001)            │
 │  Workspace / ComposerArea / ChatArea / 管理后台页面               │
 └────────────────────────────┬────────────────────────────────────┘
-                             │ HTTP JSON (/api → Vite proxy → 8000)
+                             │ HTTP JSON (/api → Vite proxy → 8001)
 ┌────────────────────────────▼────────────────────────────────────┐
 │ Router 层 (backend/app/routers/)                                 │
 │  user_tasks / user_models / user_upload / user_canvas / user_download / assets / auth / admin* │
@@ -361,7 +365,7 @@
 
 **现象**: `OSError: [WinError 10048] 通常每个套接字地址(协议/网络地址/端口)只允许使用一次。`
 
-**原因**: 上一次启动的进程未正常终止，端口 8000/3001 仍被占用。
+**原因**: 上一次启动的进程未正常终止，端口 8001/3001 仍被占用。
 
 **解决**: 运行 `stop-all.bat` 通过端口查找并终止占用进程。
 
@@ -381,8 +385,8 @@
 
 | 操作 | 脚本文件 | 说明 |
 |------|---------|------|
-| **一键启动全部** | `start-all.bat` | 先后启动后端(8000) + 前端(3001)，各自在独立窗口运行 |
-| **停止全部** | `stop-all.bat` | 查找占用 8000/3001 端口的进程并终止 |
+| **一键启动全部** | `start-all.bat` | 先后启动后端(8001) + 前端(3001)，各自在独立窗口运行 |
+| **停止全部** | `stop-all.bat` | 查找占用 8001/3001 端口的进程并终止 |
 | **重启全部** | `restart-all.bat` | 等价于 `stop-all.bat` → `start-all.bat` |
 | **仅启动后端** | `_start_backend.bat` | 单启动后端 API 服务 |
 | **仅启动前端** | `_start_frontend.bat` | 单启动前端开发服务器 |
@@ -394,15 +398,15 @@
 ```
 双击 start-all.bat
     │
-    ├──► 检查 8000/3001 端口是否被占用
+    ├──► 检查 8001/3001 端口是否被占用
     │       ├── 若被占用 → 提示先运行 stop-all.bat
     │       └── 空闲 → 继续
     │
-    ├──► 弹出新窗口 "AIGC Backend :8000"
+    ├──► 弹出新窗口 "AIGC Backend :8001"
     │       └── 调用 backend/_run_server.py
     │           ├── 切换工作目录到 backend/
     │           ├── 设置 PYTHONPATH=backend/
-    │           └── uvicorn.run("app.main:app", port=8000)
+    │           └── uvicorn.run("app.main:app", port=8001)
     │
     ├──► 等待 5 秒让后端就绪
     │
@@ -419,15 +423,15 @@
 
 | 服务 | 地址 | 预期返回 |
 |------|------|---------|
-| 后端健康检查 | http://localhost:8000/api/health | `{"code":"success", "data":{"status":"ok"}}` |
-| 后端 API 文档 | http://localhost:8000/docs | Swagger UI 页面 |
+| 后端健康检查 | http://localhost:8001/api/health | `{"code":"success", "data":{"status":"ok"}}` |
+| 后端 API 文档 | http://localhost:8001/docs | Swagger UI 页面 |
 | 前端界面 | http://localhost:3001 | 登录/主页面 |
 
 ### 2.4 端口规范
 
 | 端口 | 用途 | 配置位置 | 占用策略 |
 |------|------|---------|---------|
-| **8000** | 后端 FastAPI | `backend/_run_server.py` | 端口冲突时提示需先停止 |
+| **8001** | 后端 FastAPI | `backend/run_server.py` | 端口冲突时提示需先 stop |
 | **3001** | 前端 Vite Dev Server | `frontend/vite.config.ts` | strictPort=true，占用即报错 |
 | **27017** | MongoDB | 外部依赖 | 需自行安装启动 |
 | **6379** | Redis | 外部依赖（可选） | 未启动时仅告警，不影响核心功能 |
@@ -439,7 +443,7 @@
 ```
 □ 独立窗口中查看后端日志 - 检查是否有导入错误
 □ 独立窗口中查看前端日志 - 检查 Vite 是否正常启动
-□ 运行 netstat -ano | findstr ":8000" 检查端口占用
+□ 运行 netstat -ano | findstr ":8001" 检查端口占用
 □ 运行 netstat -ano | findstr ":3001" 检查端口占用
 □ 确认 MongoDB 服务正在运行
 □ 查看 backend/ 目录下是否有 loguru 输出的日志
@@ -464,7 +468,7 @@
 
 | 命令 | 作用 | 输出 |
 |------|------|------|
-| `python launcher.py start` | 启动后端(8000) + 前端(3001) | 启动成功后显示访问地址 |
+| `python launcher.py start` | 启动后端(8001) + 前端(3001) | 启动成功后显示访问地址 |
 | `python launcher.py stop` | 停止所有服务（按 PID 文件精准终止） | 显示停止结果 |
 | `python launcher.py restart` | stop → start | 同上 |
 | `python launcher.py status` | 查看运行状态 / PID / 端口 / HTTP 健康检查 | 表格形式展示 |
@@ -483,7 +487,7 @@
   │       ├── 进程标志 = CREATE_NO_WINDOW | DETACHED_PROCESS
   │       ├── stdout → 重定向到 .runtime/backend.log
   │       ├── 写入 PID → .runtime/backend.pid
-  │       └── 健康检查: 轮询 GET http://127.0.0.1:8000/api/health (15s 超时)
+  │       └── 健康检查: 轮询 GET http://127.0.0.1:8001/api/health (15s 超时)
   │
   └──► [frontend] 构造命令 = [node.exe, "node_modules/npm/bin/npm-cli.js", "run", "dev"]
           ├── 工作目录 = frontend/
@@ -506,7 +510,7 @@
   │
   ├──► 读取 .runtime/frontend.pid → 同样终止
   │
-  └──► 兜底检查: 如果端口 8000/3001 仍被占用
+  └──► 兜底检查: 如果端口 8001/3001 仍被占用
           └── 用 netstat -ano 查找占用进程并强制终止
 ```
 
@@ -536,7 +540,7 @@
 
 ```bash
 # 后端健康检查
-curl http://localhost:8000/api/health
+curl http://localhost:8001/api/health
 # → {"code":"success","data":{"status":"ok"}}
 
 # 前端页面
@@ -946,7 +950,7 @@ frontend/
 │       ├── download.ts          # CDN 直连 + /api/download/proxy 代理下载
 │       ├── curlParser.ts        # 渠道 cURL 解析
 │       └── onboardingExport.ts
-├── vite.config.ts               # port 3001, proxy /api → 8000
+├── vite.config.ts               # port 3001, proxy /api → 8001
 └── package.json
 ```
 
@@ -961,14 +965,14 @@ server: {
   host: true,           // 允许外部访问（局域网调试）
   proxy: {
     '/api': {
-      target: 'http://localhost:8000',  // 所有 /api/** 请求代理到后端
+      target: 'http://localhost:8001',  // 所有 /api/** 请求代理到后端
       changeOrigin: true,
     },
   },
 }
 ```
 
-**为什么代理很重要**: 前端代码直接请求 `/api/models`，由 Vite 开发服务器在本地转发到 `localhost:8000/api/models`，避免了跨域问题（CORS）。
+**为什么代理很重要**: 前端代码直接请求 `/api/models`，由 Vite 开发服务器在本地转发到 `localhost:8001/api/models`，避免了跨域问题（CORS）。
 
 ### 4.3 前端依赖
 
@@ -1170,7 +1174,7 @@ GET /api/models?category=text
 - MongoDB 未连接
 
 **排查**:
-1. 打开 `http://localhost:8000/api/health` 看是否返回 JSON
+1. 打开 `http://localhost:8001/api/health` 看是否返回 JSON
 2. 如果无法访问，说明后端没启动 → 双击 `stop-all.bat` → 双击 `start-all.bat`
 3. 检查后端窗口日志是否有 `MongoDB 初始化失败` 字样 → 启动本地 MongoDB
 
@@ -1194,14 +1198,14 @@ GET /api/models?category=text
 2. 重新输入正确的 API Key（如 Weelink 平台获取的 key）
 3. 保存后写入 MongoDB（当前为明文 `auth_config.api_key`）
 
-### Q4: 端口 8000 / 3001 被占用
+### Q4: 端口 8001 / 3001 被占用
 
 **现象**: 启动时提示端口占用或启动后无法访问
 
 **解决**:
 ```bash
 # 查找占用进程
-netstat -ano | findstr ":8000"
+netstat -ano | findstr ":8001"
 # 或直接双击运行
 stop-all.bat
 ```
@@ -1234,7 +1238,7 @@ stop-all.bat
 | 文件 | 类型 | 作用 |
 |------|------|------|
 | `start-all.bat` | 启动脚本 | 一键启动全部服务（用户首选） |
-| `stop-all.bat` | 停止脚本 | 终止占用 8000/3001 的进程 |
+| `stop-all.bat` | 停止脚本 | 终止占用 8001/3001 的进程 |
 | `restart-all.bat` | 重启脚本 | stop → start 组合 |
 | `_start_backend.bat` | 单项启动 | 仅启动后端 |
 | `_start_frontend.bat` | 单项启动 | 仅启动前端 |
@@ -1246,7 +1250,7 @@ stop-all.bat
 start-all.bat
     ├──► start "" cmd /k _start_backend.bat
     │       └──► python backend/_run_server.py
-    │           └──► uvicorn.run(app.main:app, port=8000)
+    │           └──► uvicorn.run(app.main:app, port=8001)
     │
     └──► start "" cmd /k _start_frontend.bat
             └──► cd frontend && npm run dev
@@ -1260,8 +1264,8 @@ start-all.bat
 |------|--------|
 | `backend/app/main.py` | CORS 允许所有来源 /api 路由前缀 |
 | `backend/app/core/config.py` | MongoDB 连接串 / Redis 地址 / 端口 / 加密密钥 |
-| `backend/_run_server.py` | 固定端口 8000，工作目录切换 |
-| `frontend/vite.config.ts` | 固定端口 3001，strictPort=true，/api 代理到 8000 |
+| `backend/run_server.py` | 固定端口 8001（读取 settings.app_port），工作目录切换 |
+| `frontend/vite.config.ts` | 固定端口 3001，strictPort=true，/api 代理到 8001 |
 | `frontend/package.json` | npm run dev → vite |
 
 ---
@@ -1581,7 +1585,7 @@ if __name__ == "__main__":
 
 **方式 B: API 调用**
 ```bash
-curl -X POST http://localhost:8000/api/admin/models \
+curl -X POST http://localhost:8001/api/admin/models \
   -H "Content-Type: application/json" \
   -d '{
     "model_code": "my-new-model",
@@ -1614,10 +1618,10 @@ curl -X POST http://localhost:8000/api/admin/models \
 
 ```bash
 # 1. 查询模型列表
-curl http://localhost:8000/api/models?category=text
+curl http://localhost:8001/api/models?category=text
 
 # 2. 执行生成测试
-curl -X POST http://localhost:8000/api/tasks/generate \
+curl -X POST http://localhost:8001/api/tasks/generate \
   -H "Content-Type: application/json" \
   -d '{
     "model_code": "my-new-model",
@@ -2097,6 +2101,15 @@ async def _http_post(self, url: str, body: Dict[str, Any], api_key: str) -> Dict
 | 时间展示 | 后端 `datetime_utils` + 前端 `formatServerDateTime` |
 | 连线 | `.canvas-edge` 虚线流动动画 |
 
+### 12.4.4 创作助手与 Skill 库（v1.2.4，2026-06-21）
+
+| 项 | 说明 |
+|----|------|
+| 创意脑暴输出 | `skill.concept` v2.1.0 改为 Markdown 四段式（剧本草稿/选题方向/创作主题/表现形式）；Prompt 注入 + 回复 JSON 清洗兜底 |
+| Skill 运行时覆盖 | `skill_registry.CONCEPT_OUTPUT_OVERRIDE`：DB 仍为旧版时也禁止 JSON 外露 |
+| Skill 库列表 Tag | `GET /admin/drama/skills` 附加 `repo_has_changes` / `repo_version`；前端「代码库」列 + 顶部未同步汇总 |
+| 代码库对比基准 | `skills/<folder>/SKILL.md` + `scripts/` vs Skill 库**最新草稿**（非线上版） |
+
 ### 12.5 排查快速路径
 
 ```
@@ -2109,6 +2122,11 @@ async def _http_post(self, url: str, body: Dict[str, Any], api_key: str) -> Dict
 7. 画布粘贴失败：Network 看 `duplicate` 是否 404（`{"detail":"Not Found"}` = 路由未加载，restart backend）
 8. 视频下载失败：Network 看 `/api/download/proxy`；直连 fetch 因 CORS 失败属预期，应走代理
 9. 画布项目不在列表：查 `canvas_projects.user_id`；历史项目打开时会自动认领
+10. 画布文本结果差于创作流：对比 trace 中 `params.prompt` / `params.images`；勿留无 `@` 的上游文本连线
+11. 标记保存发黑：确认已用双层导出（标记层 + 底图）；CDN 跨域失败见控制台
+12. 标记笔迹错位：缩放画布后仍应用 canvas `getBoundingClientRect` 映射（v1.2.3 已修）
+13. 脑暴回复混 JSON：确认 stage=concept；Skill 库 `skill.concept` 已 v2.1.0 或运行时覆盖生效；见 `build_reply_guidance_block` / `_normalize_concept_reply`
+14. Skill 库「有更新」Tag：改 `skills/` 后刷新列表；「拉取」→ 草稿 → 「发布」；对比逻辑见 `compute_repo_sync_meta`
 ```
 
 ### 12.6 接入新模型/渠道规则（必读）
@@ -2121,4 +2139,4 @@ async def _http_post(self, url: str, body: Dict[str, Any], api_key: str) -> Dict
 
 ---
 
-*文档结束 - AIGC Platform Agent **v1.2.2**（2026-06-18 画布 MVP+ / 下载代理）*
+*文档结束 - AIGC Platform Agent **v1.2.3**（2026-06-18 画布标记 / 文本链路 / 运行记录）*

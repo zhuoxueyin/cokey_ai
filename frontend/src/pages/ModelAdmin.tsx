@@ -43,6 +43,7 @@ import type { ModelItem, ParamField, ChannelBinding, ChannelItem } from '@/types
 import ChannelBindingEditor from '@/components/ChannelBindingEditor'
 import IntegrationDebugDrawer from '@/components/IntegrationDebugDrawer'
 import { BUILTIN_PROFILE_OPTIONS } from '@/constants/onboarding'
+import { inferProviderFromProfileId } from '@/utils/protocolProfileFilter'
 import { formatServerDateTime } from '@/utils/formatDateTime'
 
 const { TextArea } = Input
@@ -113,6 +114,9 @@ export default function ModelAdmin() {
           value: p.profile_id,
           label: `${p.name} (${p.profile_id})`,
           mode: p.invocation_mode,
+          provider: p.provider || inferProviderFromProfileId(p.profile_id),
+          protocol_slot: p.protocol_slot,
+          endpoint_type: p.endpoint_type,
         }))
         const seen = new Set(fromApi.map((x) => x.value))
         setProfileOptions([

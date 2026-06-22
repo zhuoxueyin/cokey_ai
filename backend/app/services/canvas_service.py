@@ -29,7 +29,13 @@ class CanvasService:
 
     # ── Project ──────────────────────────────────────────────
 
-    async def create_project(self, title: str, user_id: Optional[str] = None) -> Dict[str, Any]:
+    async def create_project(
+        self,
+        title: str,
+        user_id: Optional[str] = None,
+        *,
+        agent_thread_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
         now = datetime.utcnow()
         project_id = generate_project_id()
         doc = {
@@ -37,11 +43,43 @@ class CanvasService:
             "user_id": user_id,
             "title": title or "未命名项目",
             "viewport": {"x": 0, "y": 0, "zoom": 1},
+            "agent_thread_id": agent_thread_id,
+            "source_agent_thread_id": agent_thread_id,
             "created_at": now,
             "updated_at": now,
         }
         result = await self.projects.insert_one(doc)
         doc["_id"] = str(result.inserted_id)
+        return self._project_response(doc)
+
+    async def get_or_create_workspace_default(self, user_id: Optional[str] = None) -> Dict[str, Any]:
+        """每个用户固定一个「创作工作台」默认画布，ID 不变（KV 映射 + Mongo 项目）。"""
+        from app.services.kv_service import get_kv_service
+
+        uid = (user_id or "default_user").strip() or "default_user"
+        kv_key = f"workspace_default:{uid}"
+        kv = get_kv_service()
+        cached_id = await kv.get("canvas", kv_key)
+        if cached_id:
+            doc = await self.projects.find_one({"project_id": cached_id})
+            if doc:
+                if doc.get("user_id") not in (uid, None, "", "default_user"):
+                    await self.projects.update_one(
+                        {"project_id": cached_id},
+                        {"$set": {"user_id": uid, "updated_at": datetime.utcnow()}},
+                    )
+                    doc = await self.projects.find_one({"project_id": cached_id})
+                return self._project_response(doc)
+
+        project = await self.create_project("我的创作画布", uid)
+        pid = project["project_id"]
+        await self.projects.update_one(
+            {"project_id": pid},
+            {"$set": {"is_workspace_default": True, "updated_at": datetime.utcnow()}},
+        )
+        await kv.set("canvas", kv_key, pid)
+        doc = await self.projects.find_one({"project_id": pid})
+        logger.info(f"创建用户默认创作画布 user={uid} project={pid}")
         return self._project_response(doc)
 
     async def list_projects(self, user_id: Optional[str] = None, page: int = 1, page_size: int = 50) -> Tuple[List[Dict], int]:
@@ -69,6 +107,56 @@ class CanvasService:
         project["nodes"] = await self.list_nodes(project_id)
         project["edges"] = await self.list_edges(project_id)
         return project
+
+    async def get_project_by_agent_thread(self, thread_id: str) -> Optional[Dict[str, Any]]:
+        """按创作助手 thread_id 反查已绑定的画布（agent_thread_id / source_agent_thread_id）。"""
+        tid = (thread_id or "").strip()
+        if not tid:
+            return None
+        doc = await self.projects.find_one(
+            {
+                "$or": [
+                    {"agent_thread_id": tid},
+                    {"source_agent_thread_id": tid},
+                ]
+            },
+            sort=[("updated_at", -1)],
+        )
+        return self._project_response(doc) if doc else None
+
+    async def bind_agent_thread(self, project_id: str, thread_id: str) -> Optional[Dict[str, Any]]:
+        """画布 ↔ 创作助手双向绑定：写入 agent_thread_id / source_agent_thread_id。"""
+        pid = (project_id or "").strip()
+        tid = (thread_id or "").strip()
+        if not pid or not tid:
+            raise ValueError("画布与创作助手 ID 不能为空")
+        doc = await self.projects.find_one({"project_id": pid})
+        if not doc:
+            raise ValueError("画布项目不存在")
+        existing_tid = (doc.get("agent_thread_id") or "").strip()
+        if existing_tid and existing_tid != tid:
+            raise ValueError("该画布已绑定其他创作助手")
+        other = await self.projects.find_one(
+            {
+                "agent_thread_id": tid,
+                "project_id": {"$ne": pid},
+            }
+        )
+        if other:
+            raise ValueError("该创作助手已绑定其他画布")
+        now = datetime.utcnow()
+        await self.projects.update_one(
+            {"project_id": pid},
+            {
+                "$set": {
+                    "agent_thread_id": tid,
+                    "source_agent_thread_id": tid,
+                    "updated_at": now,
+                }
+            },
+        )
+        updated = await self.projects.find_one({"project_id": pid})
+        return self._project_response(updated) if updated else None
 
     async def update_project(self, project_id: str, updates: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         allowed = {}
@@ -148,18 +236,22 @@ class CanvasService:
 
     async def update_node(self, project_id: str, node_id: str, updates: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         allowed: Dict[str, Any] = {}
-        for key in ("title", "position", "config", "status", "input_stale", "result", "parent_id"):
+        nullable_keys = {"result", "error_message", "task_id"}
+        for key in ("title", "position", "config", "status", "input_stale", "result", "parent_id", "task_id", "error_message", "result_version", "upstream_snapshot"):
             if key not in updates:
                 continue
             if key == "parent_id":
                 allowed["parent_id"] = updates["parent_id"]
                 continue
-            if updates[key] is not None:
+            if updates[key] is not None or key in nullable_keys:
                 allowed[key] = updates[key]
         if "config" in allowed:
             current = await self.nodes.find_one({"project_id": project_id, "node_id": node_id})
             if current:
                 merged_cfg = {**(current.get("config") or {}), **allowed["config"]}
+                for key in ("style_preset_id", "style_preset_name"):
+                    if key in allowed["config"] and allowed["config"][key] is None:
+                        merged_cfg.pop(key, None)
                 allowed["config"] = merged_cfg
         if not allowed:
             return await self.get_node(project_id, node_id)
@@ -183,6 +275,39 @@ class CanvasService:
             await self.projects.update_one({"project_id": project_id}, {"$set": {"updated_at": datetime.utcnow()}})
         return result.deleted_count > 0
 
+    @staticmethod
+    def _duplicate_config(source: Dict[str, Any]) -> Dict[str, Any]:
+        config = deepcopy(source.get("config") or {})
+        if source.get("node_type") == "image":
+            config["output_image_index"] = 0
+            if not config.get("user_resized"):
+                config.pop("width", None)
+                config.pop("height", None)
+        return config
+
+    @staticmethod
+    def _duplicate_runtime_fields(source: Dict[str, Any]) -> Dict[str, Any]:
+        """图片节点复制时只保留 config 生图参数，不继承运行态与结果。"""
+        if source.get("node_type") == "image":
+            return {
+                "result": None,
+                "result_version": 0,
+                "task_id": None,
+                "status": "idle",
+                "error_message": None,
+                "input_stale": False,
+                "upstream_snapshot": {},
+            }
+        return {
+            "result": deepcopy(source.get("result")) if source.get("result") else None,
+            "result_version": source.get("result_version") or 0,
+            "task_id": source.get("task_id"),
+            "status": source.get("status") or "idle",
+            "error_message": source.get("error_message"),
+            "input_stale": source.get("input_stale", False),
+            "upstream_snapshot": deepcopy(source.get("upstream_snapshot") or {}),
+        }
+
     async def duplicate_node(
         self,
         project_id: str,
@@ -205,14 +330,8 @@ class CanvasService:
             "node_type": source["node_type"],
             "title": f"{title} (副本)",
             "position": new_pos,
-            "config": deepcopy(source.get("config") or {}),
-            "result": deepcopy(source.get("result")) if source.get("result") else None,
-            "result_version": source.get("result_version") or 0,
-            "task_id": source.get("task_id"),
-            "status": source.get("status") or "idle",
-            "error_message": source.get("error_message"),
-            "input_stale": source.get("input_stale", False),
-            "upstream_snapshot": deepcopy(source.get("upstream_snapshot") or {}),
+            "config": self._duplicate_config(source),
+            **self._duplicate_runtime_fields(source),
             "created_at": now,
             "updated_at": now,
         }
@@ -308,6 +427,8 @@ class CanvasService:
             return {"success": False, "error_code": "validation_error", "error_message": "资源节点无需运行"}
         if node["node_type"] == "group":
             return {"success": False, "error_code": "validation_error", "error_message": "分组框不可运行"}
+        if node["node_type"] == "title":
+            return {"success": False, "error_code": "validation_error", "error_message": "标题节点不可运行"}
 
         config = deepcopy(node.get("config") or {})
         if config_override:
@@ -336,6 +457,14 @@ class CanvasService:
         params = self._build_run_params(
             node["node_type"], config, upstream_inputs, ref_contents, ref_image_urls
         )
+        if node["node_type"] in ("image", "video"):
+            from app.core.canvas_style_prompt import apply_canvas_style_preset
+
+            params = await apply_canvas_style_preset(
+                params,
+                style_preset_id=config.get("style_preset_id"),
+                node_type=node["node_type"],
+            )
 
         if category == "image":
             from app.core.image_size_spec import normalize_image_size
@@ -445,6 +574,17 @@ class CanvasService:
                 external_task_id=result.get("external_task_id"),
             )
             await trace_svc.finalize(task["trace_id"], "success", duration_ms=result.get("duration_ms"))
+            try:
+                from app.services.asset_service import register_generated_assets_from_result
+
+                await register_generated_assets_from_result(
+                    result_data,
+                    task_id=task["task_id"],
+                    category=category,
+                    trace_id=task.get("trace_id", ""),
+                )
+            except Exception as e:
+                logger.warning(f"画布生成资源入库失败 project={project_id} node={node_id}: {e}")
             await self.nodes.update_one(
                 {"project_id": project_id, "node_id": node_id},
                 {"$set": {
@@ -501,11 +641,21 @@ class CanvasService:
                 ids.append(tid)
         return ids
 
-    def _project_runs_query(self, project_id: str, legacy_task_ids: List[str]) -> Dict[str, Any]:
+    def _project_runs_query(
+        self,
+        project_id: str,
+        legacy_task_ids: List[str],
+        *,
+        agent_thread_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
         clauses: List[Dict[str, Any]] = [{"canvas_project_id": project_id}]
+        if agent_thread_id:
+            clauses.append({"agent_thread_id": agent_thread_id, "source": "agent_chat"})
         if legacy_task_ids:
             clauses.append({"task_id": {"$in": legacy_task_ids}})
-        return {"$or": clauses} if len(clauses) > 1 else clauses[0]
+        if len(clauses) == 1:
+            return clauses[0]
+        return {"$or": clauses}
 
     async def _enrich_run_row(self, project_id: str, task: Dict[str, Any]) -> Dict[str, Any]:
         node_id = task.get("canvas_node_id")
@@ -538,7 +688,7 @@ class CanvasService:
             "canvas_project_id": task.get("canvas_project_id") or project_id,
             "node_id": node_id,
             "canvas_node_id": node_id,
-            "node_title": node_title or "未命名节点",
+            "node_title": node_title or ("创作助手对话" if node_type == "agent_chat" else "未命名节点"),
             "node_type": node_type,
             "canvas_node_type": node_type,
             "model_code": task.get("model_code"),
@@ -556,8 +706,10 @@ class CanvasService:
     async def list_project_runs(
         self, project_id: str, page: int = 1, page_size: int = 30
     ) -> Tuple[List[Dict[str, Any]], int]:
+        project = await self.projects.find_one({"project_id": project_id}, {"agent_thread_id": 1})
+        agent_thread_id = (project or {}).get("agent_thread_id")
         legacy_ids = await self._project_run_task_ids_from_traces(project_id)
-        query = self._project_runs_query(project_id, legacy_ids)
+        query = self._project_runs_query(project_id, legacy_ids, agent_thread_id=agent_thread_id)
         task_col = get_task_service().collection
         total = await task_col.count_documents(query)
         skip = (page - 1) * page_size
@@ -573,6 +725,21 @@ class CanvasService:
         if not task:
             return None
         if task.get("canvas_project_id") == project_id:
+            return await self._enrich_run_row(project_id, task) | {
+                "result": task.get("result"),
+                "params": task.get("params"),
+                "channel_code": task.get("channel_code"),
+                "external_task_id": task.get("external_task_id"),
+                "channel_request": task.get("channel_request"),
+                "channel_response": task.get("channel_response"),
+            }
+        project = await self.projects.find_one({"project_id": project_id}, {"agent_thread_id": 1})
+        agent_thread_id = (project or {}).get("agent_thread_id")
+        if (
+            agent_thread_id
+            and task.get("agent_thread_id") == agent_thread_id
+            and task.get("source") == "agent_chat"
+        ):
             return await self._enrich_run_row(project_id, task) | {
                 "result": task.get("result"),
                 "params": task.get("params"),
@@ -806,7 +973,11 @@ class CanvasService:
         ref_contents: Optional[Dict[str, str]] = None,
         ref_image_urls: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
-        from app.core.canvas_prompt import expand_prompt_refs, extract_ref_node_ids
+        from app.core.canvas_prompt import (
+            append_attached_text_refs,
+            expand_prompt_refs,
+            extract_ref_node_ids,
+        )
 
         params = deepcopy(config.get("params") or {})
         raw_prompt = (config.get("prompt") or "").strip()
@@ -814,27 +985,38 @@ class CanvasService:
         if ref_ids:
             prompt = expand_prompt_refs(raw_prompt, ref_contents or {})
         else:
-            # 与创作流一致：仅使用用户输入的 prompt，不静默拼接上游文本
             prompt = raw_prompt
-        prompt = (prompt or "").strip()
+        prompt = append_attached_text_refs(
+            (prompt or "").strip(),
+            ref_contents or {},
+            ref_ids,
+        ).strip()
         if prompt:
             params["prompt"] = prompt
 
-        if node_type == "text":
+        def merge_image_urls(*sources: Optional[List[str]]) -> List[str]:
             images: List[str] = []
-            for url in (ref_image_urls or []) + (upstream.get("images") or []):
-                if url and url not in images:
-                    images.append(url)
+            for src in sources:
+                for url in src or []:
+                    if url and url not in images:
+                        images.append(url)
+            return images
+
+        if node_type == "text":
+            images = merge_image_urls(ref_image_urls, upstream.get("images"))
             if images:
                 params["images"] = images
 
         if node_type in ("image", "video"):
-            images = list(upstream.get("images") or [])
+            images = merge_image_urls(ref_image_urls, upstream.get("images"))
             existing_images = params.get("images") or params.get("image")
             if isinstance(existing_images, str):
-                images.append(existing_images)
+                if existing_images not in images:
+                    images.insert(0, existing_images)
             elif isinstance(existing_images, list):
-                images.extend(existing_images)
+                for url in existing_images:
+                    if url and url not in images:
+                        images.append(url)
             if images:
                 params["images"] = images
 
@@ -889,7 +1071,7 @@ class CanvasService:
         return {"type": "image", "images": [{"url": url}], "count": 1}
 
     def _default_node_title(self, node_type: str) -> str:
-        labels = {"resource": "资源", "text": "文本节点", "image": "图片节点", "video": "视频节点", "group": "分组"}
+        labels = {"resource": "资源", "text": "文本节点", "image": "图片节点", "video": "视频节点", "group": "分组", "title": "标题"}
         return labels.get(node_type, "节点")
 
     def _project_response(self, doc: Dict[str, Any]) -> Dict[str, Any]:
@@ -899,6 +1081,9 @@ class CanvasService:
             "user_id": doc.get("user_id"),
             "title": doc.get("title"),
             "viewport": doc.get("viewport") or {"x": 0, "y": 0, "zoom": 1},
+            "is_workspace_default": bool(doc.get("is_workspace_default")),
+            "agent_thread_id": doc.get("agent_thread_id"),
+            "source_agent_thread_id": doc.get("source_agent_thread_id"),
             "created_at": doc["created_at"],
             "updated_at": doc["updated_at"],
         }

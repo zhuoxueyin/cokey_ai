@@ -8,15 +8,15 @@ def _svc() -> CanvasService:
     return CanvasService.__new__(CanvasService)
 
 
-def test_text_prompt_not_auto_merged_with_upstream():
+def test_text_prompt_appends_unreferenced_upstream_text():
     params = _svc()._build_run_params(
         "text",
         {"prompt": "写一首诗", "params": {}},
         {"texts": ["上游背景设定"], "images": [], "videos": []},
-        {},
+        {"txt1": "上游背景设定"},
         [],
     )
-    assert params["prompt"] == "写一首诗"
+    assert params["prompt"] == "写一首诗\n\n上游背景设定"
 
 
 def test_text_node_passes_upstream_images_like_workspace():
@@ -47,3 +47,16 @@ def test_image_url_from_resource_node():
         "config": {"resource_url": url, "resource_type": "image"},
     }
     assert image_url_from_source_node(node) == url
+
+
+def test_image_node_passes_connected_refs_without_at():
+    url = "https://cdn.jsdmirror.com/gh/u/r/ref.png"
+    params = _svc()._build_run_params(
+        "image",
+        {"prompt": "生成类似风格", "params": {}},
+        {"texts": [], "images": [url], "videos": []},
+        {},
+        [url],
+    )
+    assert params["prompt"] == "生成类似风格"
+    assert params["images"] == [url]

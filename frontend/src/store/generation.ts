@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import type { ModelItem, TaskItem, TaskResult } from '@/types'
+import { filterWorkspaceTasks, isCanvasTask } from '@/utils/taskSource'
 
 // 服务端任务管理 - 不再使用localStorage
 
@@ -9,6 +10,7 @@ interface GenerationState {
   params: Record<string, any>
   sessionId: string | null
   userId: string | null  // 当前用户ID
+  defaultCanvasProjectId: string | null  // 创作工作台固定画布
   tasks: TaskItem[]
   isGenerating: boolean
   currentTask: Partial<TaskItem> | null
@@ -22,6 +24,7 @@ interface GenerationActions {
   updateParam: (key: string, value: any) => void
   setSessionId: (id: string) => void
   setUserId: (id: string | null) => void
+  setDefaultCanvasProjectId: (id: string | null) => void
   setTasks: (tasks: TaskItem[]) => void
   addTask: (task: TaskItem) => void
   updateTask: (taskId: string, updates: Partial<TaskItem>) => void
@@ -39,6 +42,7 @@ export const useGenerationStore = create<GenerationState & GenerationActions>((s
   params: {},
   sessionId: null,
   userId: 'default_user',  // 默认用户ID，后续可从登录状态获取
+  defaultCanvasProjectId: null,
   tasks: [],  // 任务从服务端获取
   isGenerating: false,
   currentTask: null,
@@ -62,8 +66,10 @@ export const useGenerationStore = create<GenerationState & GenerationActions>((s
   updateParam: (key, value) => set((state) => ({ params: { ...state.params, [key]: value } })),
   setSessionId: (id) => set({ sessionId: id }),
   setUserId: (id) => set({ userId: id }),
-  setTasks: (tasks) => set({ tasks }),
+  setDefaultCanvasProjectId: (id) => set({ defaultCanvasProjectId: id }),
+  setTasks: (tasks) => set({ tasks: filterWorkspaceTasks(tasks) }),
   addTask: (task) => {
+    if (isCanvasTask(task)) return
     // 新任务添加到数组末尾，符合聊天对话习惯（最新的在底部）
     set((state) => ({ tasks: [...state.tasks, task] }))
   },
@@ -103,14 +109,15 @@ export const useGenerationStore = create<GenerationState & GenerationActions>((s
 
 // 验证 processing 状态的任务实际状态
 export const validateProcessingTasks = async (tasks: TaskItem[]): Promise<TaskItem[]> => {
-  const processingTasks = tasks.filter(t => t.status === 'processing' || t.status === 'pending')
+  const workspaceTasks = filterWorkspaceTasks(tasks)
+  const processingTasks = workspaceTasks.filter(t => t.status === 'processing' || t.status === 'pending')
   if (processingTasks.length === 0) {
-    return tasks
+    return workspaceTasks
   }
 
   try {
     const { getTaskStatus } = await import('@/api')
-    const updatedTasks = [...tasks]
+    const updatedTasks = [...workspaceTasks]
 
     for (const task of processingTasks) {
       if (task.task_id && !task.task_id.startsWith('task_local_')) {
@@ -136,7 +143,7 @@ export const validateProcessingTasks = async (tasks: TaskItem[]): Promise<TaskIt
     return updatedTasks
   } catch (e) {
     console.error('验证处理中任务状态失败:', e)
-    return tasks
+    return workspaceTasks
   }
 }
 
@@ -144,10 +151,15 @@ export const validateProcessingTasks = async (tasks: TaskItem[]): Promise<TaskIt
 export const syncTasksFromBackend = async (userId?: string, sessionId?: string): Promise<TaskItem[]> => {
   try {
     const { listTasks } = await import('@/api')
-    const res = await listTasks({ page: 1, page_size: 100, session_id: sessionId, user_id: userId })
+    const res = await listTasks({
+      page: 1,
+      page_size: 100,
+      session_id: sessionId,
+      user_id: userId,
+      source: 'workspace',
+    })
     if (res.code === 'success' && res.data && res.data.data) {
-      // 后端返回分页结构：{ data: [...], total: N, page: N, page_size: N }
-      return res.data.data as TaskItem[]
+      return filterWorkspaceTasks(res.data.data as TaskItem[])
     }
     return []
   } catch (e) {

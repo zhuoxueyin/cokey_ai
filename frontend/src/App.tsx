@@ -1,3 +1,4 @@
+import { SITE_NAME, SITE_SLOGAN } from '@/constants/branding'
 import { useState, useEffect } from 'react'
 import { BrowserRouter, Routes, Route, Link, useLocation, Navigate } from 'react-router-dom'
 import { useGenerationStore, validateProcessingTasks, syncTasksFromBackend } from './store/generation'
@@ -5,16 +6,12 @@ import { Layout, Menu, Button, Dropdown, Avatar, Modal, Form, Input, Upload } fr
 import type { MenuProps } from 'antd'
 import type { UploadProps } from 'antd'
 import {
-  FileTextOutlined,
-  PictureOutlined,
-  VideoCameraOutlined,
   DesktopOutlined,
   SettingOutlined,
   AppstoreOutlined,
   ClusterOutlined,
   HistoryOutlined,
   FileSearchOutlined,
-  ApiOutlined,
   FormOutlined,
   MenuFoldOutlined,
   MenuUnfoldOutlined,
@@ -23,7 +20,14 @@ import {
   LogoutOutlined,
   EditOutlined,
   DownOutlined,
+  FolderOutlined,
   BlockOutlined,
+  RocketOutlined,
+  InboxOutlined,
+  SkinOutlined,
+  BookOutlined,
+  ThunderboltOutlined,
+  ApiOutlined,
 } from '@ant-design/icons'
 import Workspace from './pages/Workspace'
 import AssetManager from './pages/AssetManager'
@@ -34,12 +38,20 @@ import TraceLogAdmin from './pages/TraceLogAdmin'
 import OnboardingAdmin from './pages/OnboardingAdmin'
 import ProtocolProfileAdmin from './pages/ProtocolProfileAdmin'
 import PromptManager from './pages/PromptManager'
-import CanvasHome from './pages/CanvasHome'
+import CanvasEntryPage from './pages/CanvasEntryPage'
 import CanvasEditor from './pages/CanvasEditor'
+import MySpacePage from './pages/MySpacePage'
 import Login from './pages/Login'
 import { logout, uploadImage, updateProfile } from './api'
 import { message } from 'antd'
+import StylePlazaPage from './pages/StylePlazaPage'
+import DramaStyleAdmin from './pages/DramaStyleAdmin'
+import DramaSuperAgentPage from './pages/DramaSuperAgentPage'
+import SkillAdminPage from './pages/SkillAdminPage'
+import KnowledgeAdminPage from './pages/KnowledgeAdminPage'
 import AvatarCropModal from './components/AvatarCropModal'
+import ThemeSwitcher from './components/ThemeSwitcher'
+import { useSiteTheme } from './hooks/useSiteTheme'
 
 const { Header, Sider, Content } = Layout
 
@@ -52,19 +64,44 @@ const mainMenuItems: MenuItem[] = [
     label: <Link to="/">创作工作台</Link>,
   },
   {
+    key: '/my-space',
+    icon: <FolderOutlined />,
+    label: <Link to="/my-space">我的空间</Link>,
+  },
+  {
+    key: '/drama',
+    icon: <RocketOutlined />,
+    label: <Link to="/drama">创作助手</Link>,
+  },
+  {
     key: '/canvas',
     icon: <BlockOutlined />,
     label: <Link to="/canvas">无限画布</Link>,
   },
   {
     key: '/assets',
-    icon: <PictureOutlined />,
-    label: <Link to="/assets">资源管理</Link>,
+    icon: <InboxOutlined />,
+    label: <Link to="/assets">资源仓库</Link>,
+  },
+  {
+    key: '/styles',
+    icon: <SkinOutlined />,
+    label: <Link to="/styles">风格广场</Link>,
   },
   {
     key: '/prompts',
     icon: <MessageOutlined />,
-    label: <Link to="/prompts">Prompt管理</Link>,
+    label: <Link to="/prompts">Prompt 管理</Link>,
+  },
+  {
+    key: '/skills',
+    icon: <ThunderboltOutlined />,
+    label: <Link to="/skills">Skill 库</Link>,
+  },
+  {
+    key: '/knowledge',
+    icon: <BookOutlined />,
+    label: <Link to="/knowledge">知识库</Link>,
   },
   {
     key: '/admin',
@@ -101,6 +138,11 @@ const mainMenuItems: MenuItem[] = [
         icon: <FileSearchOutlined />,
         label: <Link to="/admin/trace-logs">链路日志</Link>,
       },
+      {
+        key: '/admin/drama/styles',
+        icon: <SkinOutlined />,
+        label: <Link to="/admin/drama/styles">风格管理</Link>,
+      },
     ],
   },
 ]
@@ -117,6 +159,7 @@ function AppContent() {
   const location = useLocation()
   const [collapsed, setCollapsed] = useState(false)
   const { tasks, setTasks, setUserId } = useGenerationStore()
+  const { mode: themeMode, setMode: setThemeMode, effective: themeEffective } = useSiteTheme()
 
   // 页面加载时初始化
   useEffect(() => {
@@ -135,7 +178,7 @@ function AppContent() {
     if (isLoggedIn()) {
       const initTasks = async () => {
         const currentUserId = useGenerationStore.getState().userId
-        const syncedTasks = await syncTasksFromBackend(currentUserId)
+        const syncedTasks = await syncTasksFromBackend(currentUserId ?? undefined)
         setTasks(syncedTasks)
         
         const updatedTasks = await validateProcessingTasks(syncedTasks)
@@ -168,6 +211,7 @@ function AppContent() {
   const isAdmin = location.pathname.startsWith('/admin')
   const isAssets = location.pathname === '/assets'
   const isCanvas = location.pathname.startsWith('/canvas')
+  const isCanvasEditor = /^\/canvas\/[^/]+/.test(location.pathname)
 
   const getSelectedKeys = () => {
     if (location.pathname.startsWith('/admin/models')) return ['/admin', '/admin/models']
@@ -176,8 +220,14 @@ function AppContent() {
     if (location.pathname.startsWith('/admin/protocol-profiles')) return ['/admin', '/admin/protocol-profiles']
     if (location.pathname.startsWith('/admin/onboarding')) return ['/admin', '/admin/onboarding']
     if (location.pathname.startsWith('/admin/trace-logs')) return ['/admin', '/admin/trace-logs']
-    if (location.pathname === '/assets') return ['/assets']
+    if (location.pathname.startsWith('/admin/drama/styles')) return ['/admin', '/admin/drama/styles']
     if (location.pathname === '/prompts') return ['/prompts']
+    if (location.pathname === '/skills') return ['/skills']
+    if (location.pathname === '/knowledge') return ['/knowledge']
+    if (location.pathname.startsWith('/drama')) return ['/drama']
+    if (location.pathname === '/my-space') return ['/my-space']
+    if (location.pathname === '/styles') return ['/styles']
+    if (location.pathname === '/assets') return ['/assets']
     if (location.pathname.startsWith('/canvas')) return ['/canvas']
     return ['/']
   }
@@ -320,9 +370,14 @@ function AppContent() {
             onClick={() => setCollapsed(!collapsed)}
             style={{ fontSize: 15, width: 32, height: 32 }}
           />
-          <h2 style={{ margin: 0, fontSize: 15, fontWeight: 600, color: '#1a1a1a' }}>AIGC 创作平台</h2>
+          <div className="app-header-brand">
+            <h2 className="app-header-title">{SITE_NAME}</h2>
+            <span className="app-header-slogan">{SITE_SLOGAN}</span>
+          </div>
         </div>
 
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <ThemeSwitcher mode={themeMode} onChange={setThemeMode} />
         {userInfo && (
           <Dropdown
             menu={{
@@ -367,10 +422,11 @@ function AppContent() {
                 {!userInfo.avatar_url && (userInfo.nickname || userInfo.username || '?')[0]?.toUpperCase()}
               </Avatar>
               <span className="app-user-name">{userInfo.nickname || userInfo.username}</span>
-              <DownOutlined style={{ fontSize: 10, color: '#bbb', flexShrink: 0 }} />
+              <DownOutlined className="app-user-chip__arrow" />
             </div>
           </Dropdown>
         )}
+        </div>
       </Header>
 
       {/* 编辑用户信息模态框 */}
@@ -449,9 +505,8 @@ function AppContent() {
           collapsed={collapsed}
           onCollapse={setCollapsed}
           trigger={null}
+          className="app-sider"
           style={{
-            background: '#fff',
-            borderRight: '1px solid #f0f0f0',
             height: '100%',
             flexShrink: 0,
           }}
@@ -459,6 +514,7 @@ function AppContent() {
           <div style={{ padding: '16px 0', height: '100%', overflowY: 'auto' }}>
             <Menu
               mode="inline"
+              theme={themeEffective === 'dark' ? 'dark' : 'light'}
               selectedKeys={getSelectedKeys()}
               defaultOpenKeys={['/admin']}
               items={mainMenuItems}
@@ -468,23 +524,30 @@ function AppContent() {
         </Sider>
 
         <Content
+          className={`app-main-content${isCanvasEditor ? ' app-main-content--canvas' : ''}`}
           style={{
-            background: isCanvas ? '#0d0d0f' : '#f2f3f5',
             height: '100%',
-            overflow: 'hidden',
+            overflow: isCanvasEditor ? 'hidden' : 'auto',
           }}
         >
           <Routes>
             <Route path="/" element={<Workspace />} />
-            <Route path="/canvas" element={<CanvasHome />} />
+            <Route path="/my-space" element={<MySpacePage />} />
+            <Route path="/drama" element={<DramaSuperAgentPage />} />
+            <Route path="/drama/:threadId" element={<DramaSuperAgentPage />} />
+            <Route path="/canvas" element={<CanvasEntryPage />} />
             <Route path="/assets" element={<AssetManager />} />
-            <Route path="/admin/models" element={<ModelAdmin />} />
+            <Route path="/styles" element={<StylePlazaPage />} />
+            <Route path="/prompts" element={<PromptManager />} />
+            <Route path="/skills" element={<SkillAdminPage />} />
+            <Route path="/knowledge" element={<KnowledgeAdminPage />} />
+            <Route path="/admin/drama/styles" element={<DramaStyleAdmin />} />
             <Route path="/admin/channels" element={<ChannelAdmin />} />
             <Route path="/admin/tasks" element={<TaskAdmin />} />
             <Route path="/admin/protocol-profiles" element={<ProtocolProfileAdmin />} />
             <Route path="/admin/onboarding" element={<OnboardingAdmin />} />
             <Route path="/admin/trace-logs" element={<TraceLogAdmin />} />
-            <Route path="/prompts" element={<PromptManager />} />
+            <Route path="/admin/models" element={<ModelAdmin />} />
           </Routes>
         </Content>
       </Layout>

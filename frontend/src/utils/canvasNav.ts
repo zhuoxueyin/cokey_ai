@@ -11,6 +11,11 @@ export function openCanvasProject(projectId: string) {
   window.open(canvasProjectPath(projectId), '_blank', 'noopener,noreferrer')
 }
 
+/** 当前窗口进入画布项目 */
+export function navigateToCanvasProject(projectId: string) {
+  window.location.href = canvasProjectPath(projectId)
+}
+
 /** Link 组件用于新开标签页的属性 */
 export const canvasProjectLinkProps = {
   target: '_blank' as const,

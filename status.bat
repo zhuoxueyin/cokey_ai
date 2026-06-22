@@ -1,10 +1,10 @@
 @echo off
 chcp 65001 >nul
-title AIGC Platform - Status
+title 可米幻工坊 - Status
 cd /d "%~dp0"
 
 echo ========================================
-echo   AIGC Platform - Service Status
+echo   可米幻工坊 - Service Status
 echo ========================================
 echo.
 

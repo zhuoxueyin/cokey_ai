@@ -5,7 +5,7 @@ from typing import Any, Dict, List, Literal, Optional
 from pydantic import BaseModel, Field
 
 
-CanvasNodeType = Literal["resource", "text", "image", "video", "group"]
+CanvasNodeType = Literal["resource", "text", "image", "video", "group", "title"]
 CanvasNodeStatus = Literal["idle", "running", "success", "failed"]
 
 
@@ -44,6 +44,8 @@ class CanvasNodeConfig(BaseModel):
     height: Optional[int] = None
     user_resized: Optional[bool] = None
     output_image_index: Optional[int] = None
+    style_preset_id: Optional[str] = None
+    style_preset_name: Optional[str] = None
 
 
 class CanvasNodeCreate(BaseModel):
@@ -61,6 +63,10 @@ class CanvasNodeUpdate(BaseModel):
     status: Optional[CanvasNodeStatus] = None
     input_stale: Optional[bool] = None
     result: Optional[Dict[str, Any]] = None
+    task_id: Optional[str] = None
+    error_message: Optional[str] = None
+    result_version: Optional[int] = None
+    upstream_snapshot: Optional[Dict[str, Any]] = None
     parent_id: Optional[str] = None
 
 

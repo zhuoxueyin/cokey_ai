@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Button, Card, Empty, Input, List, Modal, Spin, message } from 'antd'
 import { PlusOutlined, DeleteOutlined, EditOutlined, AppstoreOutlined, RightOutlined } from '@ant-design/icons'
-import { createCanvasProject, deleteCanvasProject, updateCanvasProject } from '@/api/canvas'
+import { createCanvasProject, deleteCanvasProject, updateCanvasProject, getWorkspaceDefaultCanvas } from '@/api/canvas'
 import { formatServerDateTime } from '@/utils/formatDateTime'
 import type { CanvasProject } from '@/types/canvas'
 import { useGenerationStore } from '@/store/generation'
@@ -155,15 +155,34 @@ export default function CanvasHome() {
   )
 }
 
-/** 主页快捷入口：最近项目 + 新建 */
-export function CanvasProjectEntry({ compact }: { compact?: boolean }) {
-  const { userId } = useGenerationStore()
+/** 主页快捷入口：最近项目 + 新建；workspaceDefault=创作工作台固定画布 */
+export function CanvasProjectEntry({
+  compact,
+  workspaceDefault,
+}: {
+  compact?: boolean
+  workspaceDefault?: boolean
+}) {
+  const { userId, defaultCanvasProjectId, setDefaultCanvasProjectId } = useGenerationStore()
   const [creating, setCreating] = useState(false)
+  const [loadingDefault, setLoadingDefault] = useState(false)
   const [recentProjects, setRecentProjects] = useState<CanvasProject[]>([])
 
   useEffect(() => {
+    if (workspaceDefault) {
+      setLoadingDefault(true)
+      getWorkspaceDefaultCanvas(userId || undefined)
+        .then((res) => {
+          if (res.code === 'success' && res.data?.project_id) {
+            setDefaultCanvasProjectId(res.data.project_id)
+          }
+        })
+        .catch(() => {})
+        .finally(() => setLoadingDefault(false))
+      return
+    }
     fetchCanvasProjects(userId, 6).then(setRecentProjects).catch(() => {})
-  }, [userId])
+  }, [userId, workspaceDefault, setDefaultCanvasProjectId])
 
   const handleCreate = async () => {
     setCreating(true)
@@ -184,12 +203,69 @@ export function CanvasProjectEntry({ compact }: { compact?: boolean }) {
     }
   }
 
+  const openWorkspaceCanvas = () => {
+    if (defaultCanvasProjectId) {
+      openCanvasProject(defaultCanvasProjectId)
+    }
+  }
+
   if (compact) {
+    if (workspaceDefault) {
+      return (
+        <button
+          type="button"
+          className="canvas-entry-chip"
+          onClick={openWorkspaceCanvas}
+          disabled={loadingDefault || !defaultCanvasProjectId}
+        >
+          <AppstoreOutlined />
+          <span>{loadingDefault ? '加载中…' : '打开创作画布'}</span>
+        </button>
+      )
+    }
     return (
       <button type="button" className="canvas-entry-chip" onClick={handleCreate} disabled={creating}>
         <PlusOutlined />
         <span>{creating ? '创建中…' : '新建创造项目'}</span>
       </button>
+    )
+  }
+
+  if (workspaceDefault) {
+    return (
+      <div className="canvas-entry-banner">
+        <div className="canvas-entry-banner__text">
+          <strong>无限画布</strong>
+          <span>节点连接 · 独立运行 · 结果回显 · 固定项目 ID，持续使用同一块画布</span>
+          {defaultCanvasProjectId && (
+            <div className="canvas-entry-recent">
+              <span className="canvas-entry-recent__label">默认画布：</span>
+              <Link
+                to={canvasProjectPath(defaultCanvasProjectId)}
+                {...canvasProjectLinkProps}
+                className="canvas-entry-recent__item"
+              >
+                我的创作画布
+              </Link>
+              <code style={{ fontSize: 11, marginLeft: 8, opacity: 0.7 }}>{defaultCanvasProjectId}</code>
+            </div>
+          )}
+        </div>
+        <div className="canvas-entry-banner__actions">
+          <Button
+            type="primary"
+            icon={<AppstoreOutlined />}
+            loading={loadingDefault}
+            disabled={!defaultCanvasProjectId}
+            onClick={openWorkspaceCanvas}
+          >
+            打开我的画布
+          </Button>
+          <Link to="/canvas">
+            <Button>更多项目</Button>
+          </Link>
+        </div>
+      </div>
     )
   }
 

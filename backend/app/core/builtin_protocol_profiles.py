@@ -141,6 +141,33 @@ BUILTIN_PROTOCOL_PROFILES: List[Dict[str, Any]] = [
         content_type="multipart/form-data",
         description="兼容官转：/v1/images/edits multipart",
     ),
+    # —— APIYI Gemini / Nano Banana（对话式 chat/completions）——
+    _p(
+        "apiyi.gemini.chat.text_to_image",
+        "APIYI Gemini/Banana 对话式文生图",
+        provider="apiyi",
+        protocol_slot=OPENAI_CHAT_IMAGE_TEXT_TO_IMAGE,
+        invocation_mode=InvocationMode.TEXT_TO_IMAGE.value,
+        endpoint_type="chat",
+        path="chat/completions",
+        builder="apiyi_chat_image",
+        parser="markdown_image",
+        size_strategy="prompt_hint",
+        description="gemini-2.5-flash-image / gemini-3-pro-image 等 Nano Banana 系列",
+    ),
+    _p(
+        "apiyi.gemini.chat.image_to_image",
+        "APIYI Gemini/Banana 对话式图生图",
+        provider="apiyi",
+        protocol_slot=OPENAI_CHAT_IMAGE_IMAGE_TO_IMAGE,
+        invocation_mode=InvocationMode.IMAGE_TO_IMAGE.value,
+        endpoint_type="chat",
+        path="chat/completions",
+        builder="apiyi_chat_image",
+        parser="markdown_image",
+        size_strategy="prompt_hint",
+        description="user 消息含 image_url；多轮改图须带上轮输出 URL",
+    ),
     # —— Weelinking 图片（OpenAI 兼容）——
     _p(
         "weelinking.openai-image.text_to_image",
@@ -226,6 +253,22 @@ MODEL_ID_PROFILE_HINTS: List[Dict[str, Any]] = [
         "modes": {
             InvocationMode.TEXT_TO_IMAGE.value: "apiyi.gpt-image-2-vip.text_to_image",
             InvocationMode.IMAGE_TO_IMAGE.value: "apiyi.gpt-image-2-vip.image_to_image",
+        },
+    },
+    {
+        "match": "gemini",
+        "provider": "apiyi",
+        "modes": {
+            InvocationMode.TEXT_TO_IMAGE.value: "apiyi.gemini.chat.text_to_image",
+            InvocationMode.IMAGE_TO_IMAGE.value: "apiyi.gemini.chat.image_to_image",
+        },
+    },
+    {
+        "match": "banana",
+        "provider": "apiyi",
+        "modes": {
+            InvocationMode.TEXT_TO_IMAGE.value: "apiyi.gemini.chat.text_to_image",
+            InvocationMode.IMAGE_TO_IMAGE.value: "apiyi.gemini.chat.image_to_image",
         },
     },
     {

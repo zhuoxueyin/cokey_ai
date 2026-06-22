@@ -12,6 +12,30 @@ from bson import ObjectId
 logger = get_logger()
 
 
+def _workspace_task_clause() -> Dict[str, Any]:
+    """非画布任务（创作工作台 / 会话流）。"""
+    return {
+        "$or": [
+            {"canvas_project_id": {"$exists": False}},
+            {"canvas_project_id": None},
+            {"canvas_project_id": ""},
+        ]
+    }
+
+
+def _apply_task_source_filter(query: Dict[str, Any], source: Optional[str]) -> Dict[str, Any]:
+    if source == "workspace":
+        return {"$and": [query, _workspace_task_clause()]}
+    if source == "canvas":
+        return {
+            "$and": [
+                query,
+                {"canvas_project_id": {"$exists": True, "$nin": [None, ""]}},
+            ]
+        }
+    return query
+
+
 class TaskService:
     def __init__(self):
         self.collection = get_collection("tasks")
@@ -21,7 +45,9 @@ class TaskService:
                      canvas_project_id: Optional[str] = None,
                      canvas_node_id: Optional[str] = None,
                      canvas_node_title: Optional[str] = None,
-                     canvas_node_type: Optional[str] = None) -> Dict[str, Any]:
+                     canvas_node_type: Optional[str] = None,
+                     agent_thread_id: Optional[str] = None,
+                     source: Optional[str] = None) -> Dict[str, Any]:
         now = datetime.utcnow()
         task_id = generate_task_id()
         trace_id = generate_trace_id()
@@ -45,6 +71,8 @@ class TaskService:
             "canvas_node_id": canvas_node_id,
             "canvas_node_title": canvas_node_title,
             "canvas_node_type": canvas_node_type,
+            "agent_thread_id": agent_thread_id,
+            "source": source,
             "created_at": now,
             "updated_at": now,
         }
@@ -156,8 +184,9 @@ class TaskService:
                    category: Optional[str] = None,
                    status: Optional[str] = None, user_id: Optional[str] = None,
                    time_range: str = "6h",
+                   source: Optional[str] = None,
                    sort_by: str = "created_at", sort_order: int = -1) -> Tuple[List[Dict[str, Any]], int]:
-        query = {}
+        query: Dict[str, Any] = {}
         if task_id:
             query["task_id"] = task_id
         if trace_id:
@@ -193,6 +222,8 @@ class TaskService:
             }
             delta = time_map.get(time_range, timedelta(hours=6))  # 默认6小时
             query["created_at"] = {"$gte": now - delta}
+
+        query = _apply_task_source_filter(query, source)
         
         # 默认降序排序（最新的在前面），支持自定义排序字段和顺序
         cursor = self.collection.find(query).sort(sort_by, sort_order).skip((page - 1) * page_size).limit(page_size)
@@ -224,6 +255,8 @@ class TaskService:
             from datetime import datetime, timedelta
             start_time = datetime.utcnow() - timedelta(hours=time_range)
             query["created_at"] = {"$gte": start_time}
+
+        query = _apply_task_source_filter(query, "workspace")
         
         cursor = self.collection.find(query).sort("created_at", ASCENDING)
         docs = []
@@ -339,6 +372,8 @@ class TaskService:
             "canvas_node_id": doc.get("canvas_node_id"),
             "canvas_node_title": doc.get("canvas_node_title"),
             "canvas_node_type": doc.get("canvas_node_type"),
+            "agent_thread_id": doc.get("agent_thread_id"),
+            "source": doc.get("source"),
             "created_at": doc["created_at"],
             "updated_at": doc["updated_at"],
         }

@@ -1,10 +1,10 @@
 @echo off
 chcp 65001 >nul
-title AIGC Platform - Frontend Log
+title 可米幻工坊 - Frontend Log
 cd /d "%~dp0"
 
 echo ========================================
-echo   AIGC Platform - Frontend Log (tail)
+echo   可米幻工坊 - Frontend Log (tail)
 echo ========================================
 echo.
 

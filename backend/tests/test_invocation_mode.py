@@ -119,3 +119,26 @@ def test_resolve_route_apiyi_vip_legacy_generations_profile():
         assert ctx.protocol_slot == "openai.images.generations"
 
   asyncio.run(_run())
+
+
+def test_resolve_route_apiyi_gemini_banana_hint():
+  async def _run():
+        channel = {
+            "channel_provider": "apiyi",
+            "channel_code": "channel_mqme9rr9_205751",
+            "base_url": "https://api.apiyi.com/v1",
+            "endpoints": [
+                {"type": "chat", "protocol_slot": "openai.chat.image.text_to_image"},
+                {"type": "chat", "protocol_slot": "openai.chat.image.image_to_image"},
+            ],
+        }
+        binding = {
+            "channel_code": "channel_mqme9rr9_205751",
+            "channel_model_id": "gemini-2.5-flash-image",
+            "priority": 20,
+        }
+        ctx = await resolve_route("image", {"prompt": "cat"}, channel, binding)
+        assert ctx.profile_id == "apiyi.gemini.chat.text_to_image"
+        assert ctx.endpoint_type == "chat"
+
+  asyncio.run(_run())

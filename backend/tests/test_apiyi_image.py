@@ -9,6 +9,8 @@ from app.core.apiyi_image import (
     build_apiyi_chat_image_body,
     enrich_prompt_with_count_hint,
     enrich_prompt_with_size_hint,
+    is_apiyi_conversational_image_model,
+    is_apiyi_gemini_image_model,
     resolve_image_count,
 )
 
@@ -120,6 +122,13 @@ def test_count_hint_in_chat_body():
 def test_count_hint_skips_duplicate():
     text = enrich_prompt_with_count_hint("请生成2张不同风格的猫", {"n": 2})
     assert text == "请生成2张不同风格的猫"
+
+
+def test_gemini_image_model_detection():
+    assert is_apiyi_gemini_image_model("gemini-2.5-flash-image")
+    assert is_apiyi_gemini_image_model("gemini-3-pro-image-preview")
+    assert is_apiyi_conversational_image_model("gemini-2.5-flash-image")
+    assert not is_apiyi_gemini_image_model("gpt-image-2-vip")
 
 
 if __name__ == "__main__":

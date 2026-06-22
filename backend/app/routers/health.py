@@ -16,7 +16,7 @@ async def health_check():
 
     return success({
         "status": "ok",
-        "service": "AIGC Platform API",
+        "service": f"{settings.app_name} API",
         "storage": {
             "enabled": storage.enabled,
             "repo": storage.repo,
@@ -39,7 +39,8 @@ async def health_check():
 @router.get("/")
 async def root():
     return success({
-        "name": "AIGC创作平台",
+        "name": settings.app_name,
+        "slogan": settings.app_slogan,
         "version": "1.0.0",
         "api_prefix": "/api"
     })

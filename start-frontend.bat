@@ -2,7 +2,7 @@
 chcp 65001 >nul
 title AIGC Frontend - Port 3001
 echo ========================================
-echo   AIGC Platform - Frontend
+echo   可米幻工坊 - Frontend
 echo ========================================
 echo.
 

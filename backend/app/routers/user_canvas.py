@@ -26,6 +26,13 @@ async def create_project(data: CanvasProjectCreate):
     return success(project)
 
 
+@router.get("/projects/workspace-default")
+async def get_workspace_default_project(user_id: str = None):
+    """创作工作台固定画布：每用户一个 project_id，不变。"""
+    project = await get_canvas_service().get_or_create_workspace_default(user_id)
+    return success(project)
+
+
 @router.get("/projects")
 async def list_projects(user_id: str = None, page: int = 1, page_size: int = 50):
     items, total = await get_canvas_service().list_projects(user_id, page, page_size)

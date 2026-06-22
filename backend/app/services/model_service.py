@@ -221,6 +221,7 @@ class ModelService:
             "param_schema": doc.get("param_schema", {"fields": []}),
             "supported_inputs": doc.get("supported_inputs", {}),
             "is_default": doc.get("is_default", False),
+            "sort_order": doc.get("sort_order", 0),
         }
 
 

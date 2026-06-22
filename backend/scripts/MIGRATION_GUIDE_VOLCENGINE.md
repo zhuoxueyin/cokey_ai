@@ -81,7 +81,7 @@ db.channels.updateMany(
 python launcher.py log backend | grep -i volcengine
 
 # 2. 测试生成任务
-curl -X POST http://localhost:8000/api/tasks/generate \
+curl -X POST http://localhost:8001/api/tasks/generate \
   -H "Content-Type: application/json" \
   -d '{
     "model_code": "your-volcengine-model",
@@ -90,7 +90,7 @@ curl -X POST http://localhost:8000/api/tasks/generate \
   }'
 
 # 3. 查询渠道列表
-curl http://localhost:8000/api/admin/channels | jq '.data[] | select(.channel_code | test("volcengine"))'
+curl http://localhost:8001/api/admin/channels | jq '.data[] | select(.channel_code | test("volcengine"))'
 ```
 
 ---

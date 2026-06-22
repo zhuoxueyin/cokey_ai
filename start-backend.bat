@@ -1,8 +1,8 @@
 @echo off
 chcp 65001 >nul
-title AIGC Backend - Port 8000
+title AIGC Backend - Port 8001
 echo ========================================
-echo   AIGC Platform - Backend
+echo   可米幻工坊 - Backend
 echo ========================================
 echo.
 
@@ -33,8 +33,8 @@ if not exist ".env" (
 )
 
 echo.
-echo [INFO] Starting backend on http://localhost:8000
-echo [INFO] API docs: http://localhost:8000/docs
+echo [INFO] Starting backend on http://localhost:8001
+echo [INFO] API docs: http://localhost:8001/docs
 echo.
 python run_server.py
 

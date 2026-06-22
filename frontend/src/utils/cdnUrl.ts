@@ -47,11 +47,31 @@ export function buildCdnUrlsFromFilePath(filePath: string, repo = DEFAULT_GH_REP
   ]
 }
 
+type AssetUrlFields = {
+  url?: string
+  cdn_urls?: string[]
+  file_path?: string
+  resolved_cdn_url?: string
+}
+
+/** 预览用：尽量展示可访问 URL，校验失败时仍回退到原始地址 */
+export function assetDisplayUrl(data: AssetUrlFields): string {
+  try {
+    return pickCdnUrl(data)
+  } catch {
+    if (data.resolved_cdn_url) return data.resolved_cdn_url
+    const fromList = data.cdn_urls?.find(Boolean)
+    if (fromList) return fromList
+    if (data.file_path) {
+      const built = buildCdnUrlsFromFilePath(data.file_path)[0]
+      if (built) return built
+    }
+    return data.url || ''
+  }
+}
+
 /** 从上传/资源响应中选取主 CDN URL */
-export function pickCdnUrl(
-  data: { url?: string; cdn_urls?: string[]; file_path?: string; resolved_cdn_url?: string },
-  label = '图片',
-): string {
+export function pickCdnUrl(data: AssetUrlFields, label = '图片'): string {
   if (data.resolved_cdn_url && isCdnUrl(data.resolved_cdn_url)) {
     return data.resolved_cdn_url
   }

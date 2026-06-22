@@ -29,6 +29,12 @@ import {
 } from '@ant-design/icons'
 import dayjs from 'dayjs'
 import { listChannelsAdmin, listProtocolProfilesAdmin } from '@/api'
+import type { ChannelItem } from '@/types'
+import {
+  filterProfilesForBinding,
+  inferProviderFromProfileId,
+  pruneIncompatibleModeProfiles,
+} from '@/utils/protocolProfileFilter'
 import {
   BUILTIN_PROFILE_OPTIONS,
   BUILDER_OPTIONS,
@@ -65,7 +71,9 @@ const defaultBinding = () => ({
 export default function OnboardingAdmin() {
   const [form] = Form.useForm<OnboardingFormValues>()
   const [step, setStep] = useState(0)
-  const [channels, setChannels] = useState<{ channel_code: string; channel_name: string }[]>([])
+  const [channels, setChannels] = useState<
+    Pick<ChannelItem, 'channel_code' | 'channel_name' | 'channel_provider' | 'endpoints'>[]
+  >([])
   const [profileOptions, setProfileOptions] = useState(BUILTIN_PROFILE_OPTIONS)
   const [exportedMd, setExportedMd] = useState('')
   const watched = Form.useWatch([], form)
@@ -73,19 +81,35 @@ export default function OnboardingAdmin() {
   useEffect(() => {
     listChannelsAdmin({ page: 1, page_size: 100, status: 'active' }).then((res) => {
       if (res.code === 'success' && res.data) {
-        setChannels(res.data.map((c: { channel_code: string; channel_name: string }) => ({
-          channel_code: c.channel_code,
-          channel_name: c.channel_name,
-        })))
+        setChannels(
+          res.data.map((c: ChannelItem) => ({
+            channel_code: c.channel_code,
+            channel_name: c.channel_name,
+            channel_provider: c.channel_provider,
+            endpoints: c.endpoints,
+          })),
+        )
       }
     })
     listProtocolProfilesAdmin({ page: 1, page_size: 100 }).then((res) => {
       if (res.code === 'success' && res.data?.length) {
-        const fromApi = res.data.map((p: { profile_id: string; name: string; invocation_mode: string }) => ({
-          value: p.profile_id,
-          label: `${p.name} (${p.profile_id})`,
-          mode: p.invocation_mode,
-        }))
+        const fromApi = res.data.map(
+          (p: {
+            profile_id: string
+            name: string
+            invocation_mode: string
+            provider?: string
+            protocol_slot?: string
+            endpoint_type?: string
+          }) => ({
+            value: p.profile_id,
+            label: `${p.name} (${p.profile_id})`,
+            mode: p.invocation_mode,
+            provider: p.provider || inferProviderFromProfileId(p.profile_id),
+            protocol_slot: p.protocol_slot,
+            endpoint_type: p.endpoint_type,
+          }),
+        )
         const seen = new Set(fromApi.map((x: { value: string }) => x.value))
         const merged = [...fromApi, ...BUILTIN_PROFILE_OPTIONS.filter((b) => !seen.has(b.value))]
         setProfileOptions(merged)
@@ -179,8 +203,10 @@ export default function OnboardingAdmin() {
     return map
   }, [requiredIssues])
 
-  const profileOptionsForMode = (mode: string) =>
-    profileOptions.filter((p) => p.mode === mode)
+  const profileOptionsForMode = (mode: string, channelCode?: string, channelModelId?: string) => {
+    const channel = channels.find((c) => c.channel_code === channelCode)
+    return filterProfilesForBinding(profileOptions, mode, channel, channelModelId)
+  }
 
   const renderRequiredSidebar = () => (
     <Card
@@ -548,6 +574,28 @@ export default function OnboardingAdmin() {
                                       value: c.channel_code,
                                       label: c.channel_code,
                                     }))}
+                                    onChange={(code) => {
+                                      const channel = channels.find((c) => c.channel_code === code)
+                                      const modelId = form.getFieldValue([
+                                        'bindings',
+                                        field.name,
+                                        'channel_model_id',
+                                      ]) as string | undefined
+                                      const modeProfiles = form.getFieldValue([
+                                        'bindings',
+                                        field.name,
+                                        'mode_profiles',
+                                      ]) as Record<string, string> | undefined
+                                      form.setFieldValue(
+                                        ['bindings', field.name, 'mode_profiles'],
+                                        pruneIncompatibleModeProfiles(
+                                          modeProfiles,
+                                          profileOptions,
+                                          channel,
+                                          modelId,
+                                        ),
+                                      )
+                                    }}
                                   />
                                 </Form.Item>
                               </Col>
@@ -585,28 +633,54 @@ export default function OnboardingAdmin() {
                             </Row>
 
                             <Divider plain style={{ margin: '8px 0 16px' }}>mode_profiles 映射</Divider>
-                            {supportedModes.map((mode: string) => {
-                              const modeLabel = INVOCATION_MODES.find((m) => m.value === mode)?.label || mode
-                              return (
-                                <div key={mode} style={{ marginBottom: 16, padding: 12, background: '#fafafa', borderRadius: 8 }}>
-                                  <Text strong>{modeLabel}</Text>
-                                  <Row gutter={12} style={{ marginTop: 8 }}>
-                                    <Col span={16}>
-                                      <Form.Item
-                                        {...field}
-                                        name={[field.name, 'mode_profiles', mode]}
-                                        rules={[{ required: true, message: '请选择 profile_id' }]}
-                                        style={{ marginBottom: 8 }}
-                                      >
-                                        <Select
-                                          showSearch
-                                          placeholder="选择内置或输入自定义 profile_id"
-                                          options={profileOptionsForMode(mode)}
-                                          optionFilterProp="label"
-                                          allowClear
-                                        />
-                                      </Form.Item>
-                                    </Col>
+                            <Form.Item noStyle shouldUpdate>
+                              {() => {
+                                const channelCode = form.getFieldValue([
+                                  'bindings',
+                                  field.name,
+                                  'channel_code',
+                                ]) as string | undefined
+                                const channelModelId = form.getFieldValue([
+                                  'bindings',
+                                  field.name,
+                                  'channel_model_id',
+                                ]) as string | undefined
+                                return supportedModes.map((mode: string) => {
+                                  const modeLabel =
+                                    INVOCATION_MODES.find((m) => m.value === mode)?.label || mode
+                                  const options = profileOptionsForMode(mode, channelCode, channelModelId)
+                                  return (
+                                    <div
+                                      key={mode}
+                                      style={{
+                                        marginBottom: 16,
+                                        padding: 12,
+                                        background: '#fafafa',
+                                        borderRadius: 8,
+                                      }}
+                                    >
+                                      <Text strong>{modeLabel}</Text>
+                                      <Row gutter={12} style={{ marginTop: 8 }}>
+                                        <Col span={16}>
+                                          <Form.Item
+                                            {...field}
+                                            name={[field.name, 'mode_profiles', mode]}
+                                            rules={[{ required: true, message: '请选择 profile_id' }]}
+                                            style={{ marginBottom: 8 }}
+                                          >
+                                            <Select
+                                              showSearch
+                                              placeholder={
+                                                options.length
+                                                  ? '选择内置或输入自定义 profile_id'
+                                                  : '当前渠道无可用协议画像'
+                                              }
+                                              options={options}
+                                              optionFilterProp="label"
+                                              allowClear
+                                            />
+                                          </Form.Item>
+                                        </Col>
                                     <Col span={8}>
                                       <Form.Item
                                         {...field}
@@ -695,7 +769,9 @@ export default function OnboardingAdmin() {
                                   </Form.Item>
                                 </div>
                               )
-                            })}
+                            })
+                              }}
+                            </Form.Item>
                           </Card>
                         ))}
                         <Button type="dashed" block onClick={() => add({ ...defaultBinding(), priority: 10 })}>

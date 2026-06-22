@@ -81,6 +81,10 @@ export interface TaskItem {
   trace_id?: string
   channel_request?: Record<string, any>    // 渠道请求参数
   channel_response?: Record<string, any>   // 渠道响应（视频类型包含create和query）
+  canvas_project_id?: string | null
+  canvas_node_id?: string | null
+  canvas_node_title?: string | null
+  canvas_node_type?: string | null
   created_at: string
   updated_at?: string
 }

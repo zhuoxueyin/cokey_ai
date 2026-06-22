@@ -1,10 +1,10 @@
 @echo off
 chcp 65001 >nul
-title AIGC Platform - Restart All
+title 可米幻工坊 - Restart All
 cd /d "%~dp0"
 
 echo ========================================
-echo   AIGC Platform - Restart All Services
+echo   可米幻工坊 - Restart All Services
 echo ========================================
 echo.
 

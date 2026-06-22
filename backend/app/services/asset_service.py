@@ -11,6 +11,111 @@ from bson import ObjectId
 logger = get_logger()
 
 
+def _file_path_from_cdn_url(cdn_url: str) -> tuple[str, List[str]]:
+    """从 CDN URL 反推 GitHub file_path 与全部 CDN 镜像。"""
+    from app.services.storage_service import get_storage_service
+
+    if not cdn_url:
+        return "", []
+    storage = get_storage_service()
+    file_path = ""
+    cdn_urls = [cdn_url]
+    if storage.enabled and "/gh/" in cdn_url:
+        try:
+            suffix = f"@{storage.branch}/"
+            pos = cdn_url.find(suffix)
+            if pos > 0:
+                file_path = cdn_url[pos + len(suffix) :]
+                cdn_urls = storage.get_all_cdn_urls(file_path)
+        except Exception:
+            pass
+    return file_path, cdn_urls
+
+
+async def register_generated_assets_from_result(
+    result_data: Dict[str, Any],
+    *,
+    task_id: str,
+    category: Optional[str] = None,
+    trace_id: str = "",
+    skip_existing: bool = True,
+) -> int:
+    """将 AI 生成结果中的图片/视频写入 assets 集合（source_type=generated）。"""
+    if not result_data:
+        return 0
+
+    svc = get_asset_service()
+    res_type = result_data.get("type") or category or "image"
+    registered = 0
+
+    async def _already_exists(url: str) -> bool:
+        if not skip_existing or not url:
+            return bool(url)
+        doc = await svc.collection.find_one(
+            {
+                "source_type": "generated",
+                "$or": [{"url": url}, {"cdn_urls": url}],
+            }
+        )
+        return doc is not None
+
+    if res_type == "image":
+        from app.adapters.weelinking import _ensure_cdn_url
+        from app.core.cdn import is_cdn_url
+
+        images = result_data.get("images") or []
+        for idx, img in enumerate(images):
+            try:
+                img_url = img.get("url") if isinstance(img, dict) else str(img)
+                if not img_url:
+                    continue
+                cdn_url = img_url
+                if isinstance(img, dict) and img.get("cdn_url"):
+                    cdn_url = str(img["cdn_url"])
+                elif not is_cdn_url(cdn_url):
+                    cdn_url = await _ensure_cdn_url(img_url, trace_id)
+                if await _already_exists(cdn_url or img_url):
+                    continue
+                file_path, cdn_urls = _file_path_from_cdn_url(cdn_url or img_url)
+                await svc.create(
+                    file_name=f"generated_{task_id}_{idx}.png",
+                    file_path=file_path,
+                    url=cdn_url or img_url,
+                    cdn_urls=cdn_urls or [cdn_url or img_url],
+                    file_size=0,
+                    content_type="image/png",
+                    category="image",
+                    source_type="generated",
+                )
+                registered += 1
+            except Exception as e:
+                logger.warning(f"记录生成图片到 assets 失败 task={task_id} idx={idx}: {e}")
+    elif res_type == "video":
+        videos = result_data.get("videos") or []
+        for idx, vid in enumerate(videos):
+            try:
+                vid_url = vid.get("url") if isinstance(vid, dict) else str(vid)
+                if not vid_url:
+                    continue
+                if await _already_exists(vid_url):
+                    continue
+                await svc.create(
+                    file_name=f"generated_{task_id}_{idx}.mp4",
+                    file_path="",
+                    url=vid_url,
+                    cdn_urls=[vid_url],
+                    file_size=0,
+                    content_type="video/mp4",
+                    category="video",
+                    source_type="generated",
+                )
+                registered += 1
+            except Exception as e:
+                logger.warning(f"记录生成视频到 assets 失败 task={task_id} idx={idx}: {e}")
+
+    return registered
+
+
 class AssetService:
     """资源管理服务
 

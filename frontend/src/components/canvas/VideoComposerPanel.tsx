@@ -7,9 +7,11 @@ import type { CanvasNodeConfig } from '@/types/canvas'
 import type { CanvasUpstreamPreview } from '@/utils/canvasUpstream'
 import type { AspectRatioKey } from '@/constants/imageSizeSpec'
 import CanvasPromptInput from './CanvasPromptInput'
+import CanvasStylePicker from './CanvasStylePicker'
 import { hasVideoRunInput } from '@/utils/canvasPromptMention'
 import NodeReferenceStrip from './NodeReferenceStrip'
 import { canvasPopoverProps } from './canvasPopover'
+import { useCanvasModelCode } from './useCanvasModelCode'
 
 type VideoQuality = '480p' | '720p'
 
@@ -19,6 +21,8 @@ interface VideoPanelState {
   duration: number
   quality: VideoQuality
   audio: boolean
+  stylePresetId?: string
+  stylePresetName?: string
 }
 
 const VIDEO_DURATION_MIN = 4
@@ -60,6 +64,8 @@ function stateFromConfig(config: CanvasNodeConfig): VideoPanelState {
     state.quality = params.video_quality
   }
   if (typeof params.audio === 'boolean') state.audio = params.audio
+  state.stylePresetId = config.style_preset_id
+  state.stylePresetName = config.style_preset_name
   return state
 }
 
@@ -113,8 +119,13 @@ export default function VideoComposerPanel({
   onUpdateConfig,
 }: VideoComposerPanelProps) {
   const persistTimerRef = useRef<number | null>(null)
+  const stateRef = useRef<VideoPanelState>(defaultState())
   const [models, setModels] = useState<ModelItem[]>([])
-  const [modelCode, setModelCode] = useState(config.model_code)
+  const { modelCode, setModelCode, modelCodeRef } = useCanvasModelCode(
+    config.model_code,
+    nodeId,
+    configRevision,
+  )
   const [state, setState] = useState<VideoPanelState>(() => defaultState())
   const [configOpen, setConfigOpen] = useState(false)
 
@@ -124,34 +135,59 @@ export default function VideoComposerPanel({
         setModels(res.data)
         const def =
           res.data.find((m) => m.model_code === config.model_code) ||
+          res.data.find((m) => m.model_code === modelCodeRef.current) ||
           res.data.find((m) => m.is_default) ||
           res.data[0]
-        if (def && !modelCode) setModelCode(def.model_code)
+        if (def && !modelCodeRef.current) setModelCode(def.model_code)
       }
     })
   }, [])
 
   useEffect(() => {
-    setModelCode(config.model_code)
-    setState(stateFromConfig(config))
-  }, [nodeId, configRevision, config.model_code, config.prompt])
+    const next = stateFromConfig(config)
+    const local = stateRef.current
+    if (local.stylePresetId && !next.stylePresetId) {
+      next.stylePresetId = local.stylePresetId
+      next.stylePresetName = local.stylePresetName
+    }
+    setState(next)
+    stateRef.current = next
+  }, [nodeId, configRevision, config.prompt, config.style_preset_id, config.style_preset_name])
 
   const currentModel = models.find((m) => m.model_code === modelCode) || models[0]
 
-  const schedulePersist = (next: VideoPanelState, code = modelCode) => {
+  const buildConfigFromState = (next: VideoPanelState, code?: string): Partial<CanvasNodeConfig> => {
+    const resolvedCode = code ?? modelCodeRef.current
+    const patch: Partial<CanvasNodeConfig> = {
+      prompt: next.prompt,
+      model_code: resolvedCode,
+      params: buildPersistParams(next),
+    }
+    if (next.stylePresetId) {
+      patch.style_preset_id = next.stylePresetId
+      if (next.stylePresetName) patch.style_preset_name = next.stylePresetName
+    }
+    return patch
+  }
+
+  const persistNow = (next: VideoPanelState, code?: string) => {
+    void onUpdateConfig(buildConfigFromState(next, code))
+  }
+
+  const schedulePersist = (next: VideoPanelState, code?: string) => {
+    stateRef.current = next
     if (persistTimerRef.current) window.clearTimeout(persistTimerRef.current)
     persistTimerRef.current = window.setTimeout(() => {
-      onUpdateConfig({
-        prompt: next.prompt,
-        model_code: code,
-        params: buildPersistParams(next),
-      })
+      persistNow(next, code)
     }, 400)
   }
 
   useEffect(
     () => () => {
-      if (persistTimerRef.current) window.clearTimeout(persistTimerRef.current)
+      if (persistTimerRef.current) {
+        window.clearTimeout(persistTimerRef.current)
+      }
+      persistNow(stateRef.current, modelCodeRef.current)
     },
     [],
   )
@@ -160,6 +196,20 @@ export default function VideoComposerPanel({
     setState((prev) => {
       const next = { ...prev, ...patch }
       schedulePersist(next)
+      return next
+    })
+  }
+
+  const handleStyleChange = (styleId?: string, styleName?: string) => {
+    if (persistTimerRef.current) window.clearTimeout(persistTimerRef.current)
+    setState((prev) => {
+      const next = { ...prev, stylePresetId: styleId, stylePresetName: styleName }
+      stateRef.current = next
+      if (styleId) {
+        void onUpdateConfig({ style_preset_id: styleId, style_preset_name: styleName })
+      } else {
+        void onUpdateConfig({ style_preset_id: null, style_preset_name: null })
+      }
       return next
     })
   }
@@ -178,6 +228,8 @@ export default function VideoComposerPanel({
       prompt: state.prompt.trim(),
       model_code: modelCode,
       params: buildPersistParams(state),
+      style_preset_id: state.stylePresetId,
+      style_preset_name: state.stylePresetName,
     })
   }
 
@@ -302,6 +354,11 @@ export default function VideoComposerPanel({
               <DownOutlined />
             </button>
           </Popover>
+          <CanvasStylePicker
+            stylePresetId={state.stylePresetId}
+            stylePresetName={state.stylePresetName}
+            onChange={handleStyleChange}
+          />
         </div>
         <Button
           type="primary"

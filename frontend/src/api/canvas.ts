@@ -9,6 +9,11 @@ export const createCanvasProject = (params: {
   return request.post('/canvas/projects', params)
 }
 
+/** 创作工作台固定画布（每用户一个，ID 不变） */
+export const getWorkspaceDefaultCanvas = (user_id?: string): Promise<ApiResponse<CanvasProject>> => {
+  return request.get('/canvas/projects/workspace-default', { params: { user_id } })
+}
+
 export const listCanvasProjects = (params?: {
   user_id?: string
   page?: number
@@ -52,7 +57,13 @@ export const updateCanvasNode = (
     title: string
     position: { x: number; y: number }
     config: CanvasNodeConfig
-    result: Record<string, any>
+    status: CanvasNode['status']
+    input_stale: boolean
+    result: Record<string, any> | null
+    task_id: string | null
+    error_message: string | null
+    result_version: number
+    upstream_snapshot: Record<string, unknown>
     parent_id: string | null
   }>,
 ): Promise<ApiResponse<CanvasNode>> => {
