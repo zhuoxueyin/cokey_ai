@@ -121,6 +121,7 @@
 | 画布框选交互 | Space 按下期间显式切换 `selectionOnDrag` / `panOnDrag`，修复刷新后 Space + 左键无法框选节点 |
 | 管理端 TaskAdmin | 筛选区与表格布局修复；时间 UTC→本地 `formatServerDateTime` |
 | API 时间序列化 | `datetime_utils` 统一 ISO8601 带 `Z`；`success/paginated` 递归序列化 |
+| Redis 依赖移除 | 无业务调用，删除启动初始化与 `redis` 包；MongoDB + `kv_service` 承担 KV/缓存 |
 
 ### 0.8 仍待改进（技术债摘要）
 
@@ -130,7 +131,7 @@
 | P1 | chat 端点在无 profile 时仍可能抢占 image 路由（有 profile 时已按 mode 分流） |
 | P1 | ConfigEngine 与适配器内置 `_call_*` 双路径并存 |
 | P1 | `b64_json` 转 CDN 失败时仍可能落 data URL |
-| P2 | Redis 未接入队列/限流；MongoDB 大文档截断策略需持续观察 |
+| P2 | MongoDB 大文档截断策略需持续观察 |
 | P2 | 画布节点复制依赖后端 `duplicate` 路由已加载（改代码后须 `launcher restart`） |
 | P2 | 资源图「裁剪」工具箱项尚未实现（仅占位） |
 | P2 | 短剧 Super Agent：Skill 链/导出画布待迭代；脑暴阶段已规范 Markdown 输出（v2.1.0 skill.concept） |
@@ -218,11 +219,11 @@
 └─────────────────────────────┬───────────────────────────┘
                               │
            ┌──────────────────┼──────────────────┐
-           ▼                  ▼                  ▼
-     ┌──────────┐       ┌──────────┐       ┌──────────────────┐
-     │  MongoDB │       │  Redis   │       │ Weelink / 火山等  │
-     │ (必需)   │       │ (可选)   │       │ 外部 AI API      │
-     └──────────┘       └──────────┘       └──────────────────┘
+           ▼                  ▼
+     ┌──────────┐       ┌──────────────────┐
+     │  MongoDB │       │ Weelink / 火山等  │
+     │ (必需)   │       │ 外部 AI API      │
+     └──────────┘       └──────────────────┘
                               │
                      ┌────────┴────────┐
                      │ GitHub + CDN    │
@@ -434,7 +435,6 @@
 | **8001** | 后端 FastAPI | `backend/run_server.py` | 端口冲突时提示需先 stop |
 | **3001** | 前端 Vite Dev Server | `frontend/vite.config.ts` | strictPort=true，占用即报错 |
 | **27017** | MongoDB | 外部依赖 | 需自行安装启动 |
-| **6379** | Redis | 外部依赖（可选） | 未启动时仅告警，不影响核心功能 |
 
 ### 2.5 启动排查清单
 
@@ -569,7 +569,7 @@ curl -I http://localhost:3001/
 ```
 backend/
 ├── app/
-│   ├── main.py                 # FastAPI 入口，路由注册，MongoDB/Redis 初始化
+│   ├── main.py                 # FastAPI 入口，路由注册，MongoDB 初始化
 │   ├── routers/
 │   │   ├── health.py           # GET /api/health
 │   │   ├── auth.py             # POST /api/auth/login|register|logout
@@ -623,7 +623,6 @@ backend/
 │       ├── image_size_spec.py  # 生图尺寸规范化
 │       ├── security.py         # Fernet 加解密（迁移脚本用）
 │       ├── middleware.py       # JWT 中间件
-│       ├── redis_client.py     # Redis（可选）
 │       ├── response.py         # 统一响应格式
 │       ├── logging_config.py   # Loguru
 │       └── utils.py            # task_id / trace_id
@@ -887,7 +886,6 @@ motor>=3.4.0                      # MongoDB 异步驱动
 aiohttp>=3.9.0                    # 异步 HTTP 客户端
 httpx>=0.27.0                     # HTTP/2 客户端（渠道调用）
 openai>=1.30.0                    # OpenAI 官方 SDK（渠道适配器）
-redis>=5.0.0                      # Redis（可选，缓存）
 python-dotenv>=1.0.0              # .env 文件加载
 cryptography>=42.0.0              # Fernet 加密
 loguru>=0.7.0                     # 结构化日志
@@ -1263,7 +1261,7 @@ start-all.bat
 | 文件 | 配置项 |
 |------|--------|
 | `backend/app/main.py` | CORS 允许所有来源 /api 路由前缀 |
-| `backend/app/core/config.py` | MongoDB 连接串 / Redis 地址 / 端口 / 加密密钥 |
+| `backend/app/core/config.py` | MongoDB 连接串 / 端口 / 加密密钥 |
 | `backend/run_server.py` | 固定端口 8001（读取 settings.app_port），工作目录切换 |
 | `frontend/vite.config.ts` | 固定端口 3001，strictPort=true，/api 代理到 8001 |
 | `frontend/package.json` | npm run dev → vite |
@@ -2045,10 +2043,9 @@ async def _http_post(self, url: str, body: Dict[str, Any], api_key: str) -> Dict
 
 | # | 问题 | 说明 |
 |---|------|------|
-| 9 | Redis 未深度使用 | 限流/队列未接入网关 |
-| 10 | MongoDB 文档膨胀 | channel_response 截断，极端 prompt 仍需注意 |
-| 11 | 测试分散 | `backend/tests/` 有单元测试，缺完整 E2E CI |
-| 12 | TaskAdmin 与 API 默认时间窗 | 前端默认 24h，`GET /admin/tasks` 默认 `time_range=6h` |
+| 9 | MongoDB 文档膨胀 | channel_response 截断，极端 prompt 仍需注意 |
+| 10 | 测试分散 | `backend/tests/` 有单元测试，缺完整 E2E CI |
+| 11 | TaskAdmin 与 API 默认时间窗 | 前端默认 24h，`GET /admin/tasks` 默认 `time_range=6h` |
 
 ### 12.4 已修复清单（v1.1 → v1.2）
 

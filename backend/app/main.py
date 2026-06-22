@@ -4,8 +4,6 @@ from fastapi.middleware.gzip import GZipMiddleware
 from app.core.config import settings
 from app.core.database import init_mongodb
 from app.core.logging_config import get_logger
-from app.core.redis_client import init_redis
-
 from app.routers import health, assets, prompts
 from app.routers import admin_channels, admin_models, admin_tasks, admin_trace_logs, admin_users, admin_protocol_profiles, admin_drama
 from app.routers import user_models, user_tasks, user_sessions, user_upload, auth, user, user_canvas, user_download, user_drama
@@ -61,12 +59,6 @@ async def startup_event():
         await bootstrap_drama_module(seed_skills=True)
     except Exception as e:
         logger.error(f"MongoDB 初始化失败: {e}")
-
-    try:
-        await init_redis()
-        logger.info("Redis 初始化完成")
-    except Exception as e:
-        logger.warning(f"Redis 初始化失败（可选依赖）: {e}")
 
     logger.info(f"应用启动完成 - {settings.app_name} v1.0.0")
 

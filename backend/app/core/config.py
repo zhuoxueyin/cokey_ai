@@ -14,10 +14,6 @@ class Settings(BaseSettings):
     mongodb_url: str = "mongodb://localhost:27017"
     mongodb_db_name: str = "aigc_platform"
 
-    redis_url: str = "redis://localhost:6379/0"
-    celery_broker_url: str = "redis://localhost:6379/1"
-    celery_result_backend: str = "redis://localhost:6379/2"
-
     secret_key: str = "your-secret-key-change-in-production"
     encryption_key: str = "your-encryption-key-32bytes-min"
 

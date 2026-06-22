@@ -1,4 +1,4 @@
-"""MongoDB KV 封装（短剧 Agent 等模块使用，不依赖 Redis）。"""
+"""MongoDB KV 封装（短剧 Agent 等模块使用）。"""
 from __future__ import annotations
 
 import json
